@@ -21,3 +21,11 @@ form button { padding: 0 24px; }
 .badge.big { font-size: 1rem; padding: 4px 14px; border-radius: 14px; } .pct { margin-left: 8px; font-size: 1.1rem; }
 .signals { list-style: none; padding: 0; margin: 8px 0 0; } .signals li { display: flex; align-items: center; gap: 10px; padding: 4px 0; font-size: .9rem; } .signals li.nodata { color: #777; }
 .bar { flex: none; width: 70px; height: 8px; background: #2c2c2c; border-radius: 4px; overflow: hidden; } .bar i { display: block; height: 100%; background: #e8a317; }
+/* The logo has a black background; "lighten" makes it merge into the page color. */
+.banner { display: block; width: min(100%, 440px); height: auto; margin: 0 auto; mix-blend-mode: lighten; }
+.banner.small { width: min(100%, 220px); margin: 0; }
+.cta { display: block; width: fit-content; max-width: 100%; margin: 20px auto 8px; padding: 10px 18px; text-align: center; text-decoration: none; color: #1db954; border: 2px solid #1db954; border-radius: 10px; background: rgba(29, 185, 84, .08); transition: background .15s, color .15s; }
+.cta:hover, .cta:focus-visible { background: #1db954; color: #000; }
+.cta-title { display: block; font-size: 1rem; font-weight: 700; }
+.cta-sub { display: block; margin-top: 2px; font-size: .75rem; opacity: .85; }
+.small { text-align: center; }

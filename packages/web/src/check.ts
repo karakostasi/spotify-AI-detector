@@ -9,14 +9,17 @@ const SOURCE: Record<string, string> = { spotify: "Spotify", youtube: "YouTube",
 const MAX_REFRESH = 6;
 
 app.innerHTML = `
-  <h1>Is it AI?</h1>
-  <p class="muted">Paste a Spotify or YouTube link, or type an artist name, to see how likely the music is AI-generated.</p>
+  <a href="/"><img class="banner" src="/logo.png" alt="AI Music Detector" width="900" height="600" /></a>
   <form id="form">
-    <input type="text" id="q" placeholder="https://open.spotify.com/track/… or https://youtu.be/… or Artist - Song" autocomplete="off" />
+    <input type="text" id="q" placeholder="Paste a Spotify or YouTube link, or type an artist name, to see how likely the music is AI-generated" aria-label="Spotify or YouTube link, or artist name" autocomplete="off" />
     <button type="submit" id="go">Check</button>
   </form>
   <div id="result"></div>
-  <p class="muted small">An estimate from public metadata and community votes, not proof. <a href="/cleaner.html">Clean a whole playlist →</a></p>`;
+  <a class="cta" href="/cleaner.html">
+    <span class="cta-title">Clean a whole playlist →</span>
+    <span class="cta-sub">Scan your Spotify playlists or Liked Songs and remove likely-AI tracks</span>
+  </a>
+  <p class="muted small">An estimate from public metadata and community votes, not proof.</p>`;
 
 const input = document.getElementById("q") as HTMLInputElement;
 const result = document.getElementById("result")!;

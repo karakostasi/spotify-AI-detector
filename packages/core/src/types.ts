@@ -14,6 +14,8 @@ export interface TrackSummary {
 }
 
 export interface MusicBrainzInfo {
+  /** MusicBrainz artist id (MBID), used to look the same act up on other services */
+  artistId?: string;
   /** Artist found on MusicBrainz */
   artistFound: boolean;
   /** Number of external URL relations (official site, socials, Discogs, ...) */
@@ -24,6 +26,28 @@ export interface MusicBrainzInfo {
   recordingFound: boolean;
   /** Count of credit relations (producer, composer, ...) on the recording */
   creditCount: number;
+}
+
+export interface WikipediaInfo {
+  /** Found a page for this name that is about music */
+  found: boolean;
+  title?: string;
+  description?: string;
+  /** The page is about this act itself, not a redirect to a broader article */
+  ownArticle: boolean;
+  /** The lead section describes the act as AI-generated */
+  aiMentioned: boolean;
+  /** Wikipedia's one-line description itself calls the act AI-generated (the precise, high-trust case) */
+  aiDescribed: boolean;
+}
+
+/** Evidence from the wider web that the act exists as real people playing real shows. */
+export interface WebPresence {
+  wikipedia?: WikipediaInfo;
+  /** setlist.fm: recorded concerts */
+  live?: { setlists: number };
+  /** YouTube: third-party live-performance videos found */
+  youtube?: { liveVideos: number };
 }
 
 export interface CrowdInfo {
@@ -47,9 +71,12 @@ export interface ArtistProfile {
   albums: AlbumInfo[];
   topTracks: TrackSummary[];
   fans?: number;
+  /** Artist photo, when the source has one */
+  imageUrl?: string;
   /** Spotify "AI Persona" badge, when known */
   spotifyAiPersona?: boolean;
   musicBrainz?: MusicBrainzInfo;
+  web?: WebPresence;
   crowd?: CrowdInfo;
   labelStats?: LabelStats;
 }

@@ -1,5 +1,5 @@
 import type { ArtistProfile } from "./types.js";
-import { Deezer } from "./providers/deezer.js";
+import { Deezer, usableImage } from "./providers/deezer.js";
 import { MusicBrainz } from "./providers/musicbrainz.js";
 
 export interface ProfileOptions {
@@ -38,6 +38,7 @@ async function enrich(artistId: number, name: string, isrc: string | undefined, 
     albums,
     topTracks,
     fans: artist?.nb_fan,
+    imageUrl: usableImage(artist?.picture_big),
     musicBrainz,
   };
 }

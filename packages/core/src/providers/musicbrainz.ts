@@ -40,6 +40,7 @@ export class MusicBrainz {
     const hit = s?.artists?.find((a) => a.score >= 90 && normalizeName(a.name) === target);
     if (hit) {
       info.artistFound = true;
+      info.artistId = hit.id;
       const full = await this.get<{ relations?: unknown[]; "life-span"?: { begin?: string | null }; area?: unknown; "begin-area"?: unknown }>(
         `/artist/${hit.id}?inc=url-rels&fmt=json`,
       );

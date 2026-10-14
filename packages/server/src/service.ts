@@ -1,10 +1,10 @@
 import type { DatabaseSync } from "node:sqlite";
 import {
-  scoreArtist, normalizeName, profileFromIsrc, profileFromArtistId, lookupWebPresence, Deezer, MusicBrainz, Wikidata,
-  type ArtistProfile, type MusicBrainzInfo, type ScoreReport, type WebPresence, type WikidataInfo,
+  scoreArtist, normalizeName, profileFromIsrc, profileFromArtistId, lookupWebPresence, needsYouTube, YouTube, Deezer, MusicBrainz, Wikidata,
+  type ArtistProfile, type MusicBrainzInfo, type ScoreReport, type WebPresence, type WikidataInfo, type YouTubeVideo,
 } from "@aid/core";
 import { Crowd } from "./crowd.js";
-import { cacheGet, cacheSet } from "./db.js";
+import { cacheEntry, cacheGet, cacheSet } from "./db.js";
 import {
   CONFIDENT, PLAUSIBLE, findMatches, hintFromSpotify, hintFromText, hintFromYouTube, parseInput,
   type Hint, type Match, type Source,
@@ -12,6 +12,9 @@ import {
 
 const PROFILE_TTL = 24 * 3600 * 1000;
 const EXTRA_TTL = 7 * 24 * 3600 * 1000;
+/** A lookup where a source failed is retried soon, not trusted for a week. */
+const PARTIAL_TTL = 5 * 60 * 1000;
+const RETRY_DELAY_MS = 2000;
 
 export interface ServerReport extends ScoreReport {
   /** MusicBrainz data is still being fetched; score will sharpen on a later request */
@@ -43,11 +46,15 @@ export interface ServiceDeps {
   lookupMb: (artistName: string, isrc?: string, mbidHint?: string) => Promise<MusicBrainzInfo | undefined>;
   /** Wikipedia / setlist.fm / YouTube evidence that the act is real; optional sources need API keys */
   lookupWeb: (artistName: string, mbid?: string) => Promise<WebPresence | undefined>;
+  /** YouTube live videos for an artist. Absent when no key is configured. Only called when the score is uncertain. */
+  lookupYouTube?: (artistName: string) => Promise<YouTubeVideo[] | undefined>;
   /**
    * Which optional API keys are configured, e.g. "sy". It is part of the cache key, so adding or removing a key
    * re-runs the lookups instead of serving week-old results that were gathered without it.
    */
   webKeyTag?: string;
+  /** Pause before retrying a failed MusicBrainz lookup (default 2s; tests use 0) */
+  retryDelayMs?: number;
 }
 
 export function defaultDeps(): ServiceDeps {
@@ -63,7 +70,8 @@ export function defaultDeps(): ServiceDeps {
     lookupWikidata: (name, deezerId) => wikidata.lookup(name, deezerId).catch(() => undefined),
     lookupMb: (name, isrc, hint) => mb.lookup(name, isrc, hint).catch(() => undefined),
     lookupWeb: (name, mbid) =>
-      lookupWebPresence(name, { mbid, musicBrainz: mb, setlistFmKey: process.env.SETLISTFM_API_KEY, youtubeKey: process.env.YOUTUBE_API_KEY }).catch(() => undefined),
+      lookupWebPresence(name, { mbid, musicBrainz: mb, setlistFmKey: process.env.SETLISTFM_API_KEY }).catch(() => undefined),
+    lookupYouTube: process.env.YOUTUBE_API_KEY ? (name) => new YouTube(process.env.YOUTUBE_API_KEY!).liveVideos(name).catch(() => undefined) : undefined,
   };
 }
 
@@ -105,7 +113,8 @@ export class ScoreService {
     // MusicBrainz is slow (1 req/s), so serve what we have and fill the rest in behind the scenes.
     // The web lookups run after it because setlist.fm needs the MusicBrainz id.
     const extraKey = `extra:v2:${this.deps.webKeyTag ?? ""}:${normalizeName(profile.name)}:${isrc ?? ""}`;
-    const cached = cacheGet<{ info: MusicBrainzInfo | null; web: WebPresence | null }>(this.db, extraKey, EXTRA_TTL);
+    const entry = cacheEntry<{ info: MusicBrainzInfo | null; web: WebPresence | null; partial?: boolean }>(this.db, extraKey);
+    const cached = entry && Date.now() - entry.ts < (entry.value.partial ? PARTIAL_TTL : EXTRA_TTL) ? entry.value : undefined;
     let pending = false;
     if (cached) {
       if (cached.info) profile.musicBrainz = cached.info;
@@ -117,10 +126,26 @@ export class ScoreService {
       void this.once(extraKey, async () => {
         // Wikidata first: its MusicBrainz id finds artists the name search misses.
         const wikidata = await this.deps.lookupWikidata(name, deezerId ? Number(deezerId) : undefined);
-        const info = await this.deps.lookupMb(name, isrc, wikidata?.musicBrainzId);
+        let info = await this.deps.lookupMb(name, isrc, wikidata?.musicBrainzId);
+        if (!info) {
+          // MusicBrainz sometimes rejects or drops a request; one retry usually gets through.
+          await new Promise((r) => setTimeout(r, this.deps.retryDelayMs ?? RETRY_DELAY_MS));
+          info = await this.deps.lookupMb(name, isrc, wikidata?.musicBrainzId);
+        }
         const web = await this.deps.lookupWeb(name, info?.artistId);
-        const combined = web || wikidata ? { ...web, ...(wikidata ? { wikidata } : {}) } : null;
-        cacheSet(this.db, extraKey, { info: info ?? null, web: combined });
+        let combined: WebPresence | null = web || wikidata ? { ...web, ...(wikidata ? { wikidata } : {}) } : null;
+
+        // YouTube costs quota, so only ask when the evidence so far leaves the answer open.
+        if (this.deps.lookupYouTube) {
+          const interim = { ...profile, musicBrainz: info, web: combined ?? undefined };
+          if (needsYouTube(scoreArtist(interim))) {
+            const videos = await this.deps.lookupYouTube(name);
+            if (videos) combined = { ...combined, youtube: { videos } };
+          } else {
+            combined = { ...combined, youtubeSkipped: true };
+          }
+        }
+        cacheSet(this.db, extraKey, { info: info ?? null, web: combined, partial: !info });
       }).catch(() => undefined);
     }
 

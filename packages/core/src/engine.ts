@@ -36,3 +36,12 @@ export function scoreArtist(
   const confidence = clamp01(totalWeight / FULL_EVIDENCE_WEIGHT);
   return { ...base, score, confidence, verdict: verdictFor(score) };
 }
+
+/** Below this the score is already clearly human, above the upper bound clearly AI: no need to spend YouTube quota. */
+export const YOUTUBE_UNCERTAIN_BAND = { low: 0.12, high: 0.75 };
+
+/** Is the evidence so far uncertain enough to be worth a YouTube search? */
+export function needsYouTube(report: ScoreReport): boolean {
+  if (report.signals.some((s) => s.decisive && s.score !== null && s.score >= 0.95)) return false;
+  return report.score === null || (report.score >= YOUTUBE_UNCERTAIN_BAND.low && report.score <= YOUTUBE_UNCERTAIN_BAND.high);
+}

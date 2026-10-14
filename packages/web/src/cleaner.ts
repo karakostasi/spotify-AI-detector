@@ -40,21 +40,38 @@ async function renderHome() {
   const playlists = await spotify!.playlists();
   document.getElementById("pick")!.innerHTML = `
     <label>Source <select id="src"><option value="liked">Liked Songs</option>${playlists.map((p) => `<option value="${esc(p.id)}">${esc(p.name)}</option>`).join("")}</select></label>
-    <button id="scan">Scan</button> <span id="status" class="muted"></span>`;
-  document.getElementById("scan")!.onclick = () => {
-    const sel = document.getElementById("src") as HTMLSelectElement;
-    sourceName = sel.selectedOptions[0]!.text;
-    void scan(sel.value).catch((e) => (document.getElementById("status")!.innerHTML = `<span class="err">${esc(String(e.message ?? e))}</span>`));
+    <button id="scan">Scan</button> <span id="status" class="muted"></span>
+    <div class="progress" id="scanBar" hidden><i></i></div>`;
+  const scanButton = document.getElementById("scan") as HTMLButtonElement;
+  const sourceSelect = document.getElementById("src") as HTMLSelectElement;
+  scanButton.onclick = () => {
+    sourceSelect.disabled = scanButton.disabled = true;
+    scanButton.textContent = "Scanning…";
+    sourceName = sourceSelect.selectedOptions[0]!.text;
+    void scan(sourceSelect.value)
+      .catch((e) => (document.getElementById("status")!.innerHTML = `<span class="err">${esc(String(e.message ?? e))}</span>`))
+      .finally(() => {
+        sourceSelect.disabled = scanButton.disabled = false;
+        scanButton.textContent = "Scan";
+        document.getElementById("scanBar")!.hidden = true;
+      });
   };
 }
 
 async function scan(source: string) {
   const status = document.getElementById("status")!;
+  const bar = document.getElementById("scanBar")!;
+  const setBar = (pct: number) => ((bar.firstElementChild as HTMLElement).style.width = `${pct}%`);
+  bar.hidden = false;
+  setBar(3);
   status.textContent = "Reading tracks…";
   tracks = source === "liked" ? await spotify!.likedSongs() : await spotify!.playlistTracks(source);
   const seen = new Map<string, { isrc: string }>();
   for (const t of tracks) if (t.isrc && !seen.has(t.isrc)) seen.set(t.isrc, { isrc: t.isrc });
-  reports = await client().score([...seen.values()], (d, n) => (status.textContent = `Scored ${d}/${n} unique tracks…`));
+  reports = await client().score([...seen.values()], (d, n) => {
+    status.textContent = `Scored ${d}/${n} unique tracks…`;
+    setBar(10 + Math.round((90 * d) / n)); // reading the playlist is the first 10%
+  });
   status.textContent = `${tracks.length} tracks scanned.`;
   renderResults();
 }

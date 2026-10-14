@@ -33,3 +33,7 @@ form button { padding: 0 24px; }
 .who { display: flex; align-items: center; gap: 16px; margin-bottom: 4px; }
 .who p { margin: 4px 0; }
 .artist-img { flex: none; width: 96px; height: 96px; border-radius: 12px; object-fit: cover; background: #262626; }
+.progress { height: 6px; margin: 12px 0; background: #2c2c2c; border-radius: 3px; overflow: hidden; }
+.progress i { display: block; height: 100%; width: 0; background: #1db954; border-radius: 3px; transition: width .25s ease; }
+button:disabled, input:disabled { cursor: not-allowed; }
+input:disabled { opacity: .7; }

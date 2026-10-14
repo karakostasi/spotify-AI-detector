@@ -2,13 +2,10 @@ import { createServer, type IncomingMessage, type Server, type ServerResponse } 
 import { readFile } from "node:fs/promises";
 import { extname, join, normalize, sep } from "node:path";
 import type { ScoreService } from "./service.js";
-import { PLAYLIST_ID } from "./playlist.js";
 
 const UUID = /^[0-9a-f-]{16,64}$/i;
 const ISRC = /^[A-Z]{2}[A-Z0-9]{3}\d{7}$/;
 const MAX_BATCH = 50;
-/** Tracks per playlist-scoring request: each one can mean a dozen upstream lookups */
-const MAX_PLAYLIST_BATCH = 12;
 const BATCH_CONCURRENCY = 6;
 
 const MIME: Record<string, string> = {
@@ -22,10 +19,6 @@ export interface AppOptions {
   trustProxy?: boolean;
   /** Requests per minute per client for the expensive endpoints */
   rateLimitPerMin?: number;
-  /** Playlist-scoring requests per minute per client (a 100-track playlist needs about 10) */
-  playlistLimitPerMin?: number;
-  /** Public Spotify app Client ID, so visitors never have to paste their own to log in */
-  spotifyClientId?: string;
 }
 
 class RateLimiter {
@@ -111,7 +104,6 @@ async function pool<T, R>(items: T[], n: number, fn: (t: T) => Promise<R>): Prom
 
 export function createApp(svc: ScoreService, opts: AppOptions = {}): Server {
   const limiter = new RateLimiter(opts.rateLimitPerMin ?? 40);
-  const playlistLimiter = new RateLimiter(opts.playlistLimitPerMin ?? 20);
   const staticDir = opts.staticDir ? normalize(opts.staticDir) : undefined;
   return createServer(async (req, res) => {
     try {
@@ -126,27 +118,6 @@ export function createApp(svc: ScoreService, opts: AppOptions = {}): Server {
       if (limited && !limiter.allow(clientIp(req, opts.trustProxy ?? false))) throw new HttpError(429, "Too many requests, slow down a little");
 
       if (url.pathname === "/api/health") return send(res, 200, { ok: true });
-
-      // Client IDs are public by design (PKCE login has no secret), so this is safe to expose.
-      if (req.method === "GET" && url.pathname === "/api/config") return send(res, 200, { spotifyClientId: opts.spotifyClientId ?? null });
-
-      if (req.method === "GET" && url.pathname === "/api/playlist") {
-        if (!limiter.allow(clientIp(req, opts.trustProxy ?? false))) throw new HttpError(429, "Too many requests, slow down a little");
-        const id = url.searchParams.get("id") ?? "";
-        if (!PLAYLIST_ID.test(id)) throw new HttpError(400, "Invalid playlist id");
-        const playlist = await svc.getPlaylist(id);
-        if (!playlist) throw new HttpError(404, "Couldn't read that playlist. It may be private, or Spotify changed its page.");
-        return send(res, 200, playlist);
-      }
-
-      if (req.method === "POST" && url.pathname === "/api/playlist/score") {
-        if (!playlistLimiter.allow(clientIp(req, opts.trustProxy ?? false))) throw new HttpError(429, "Too many requests, slow down a little");
-        const body = await readJson(req);
-        const items: { id: string; title: string; artists: string }[] = Array.isArray(body.items) ? body.items : [];
-        if (items.length > MAX_PLAYLIST_BATCH) throw new HttpError(400, `At most ${MAX_PLAYLIST_BATCH} tracks per request`);
-        const valid = items.filter((i) => typeof i?.id === "string" && i.id.length <= 64 && typeof i.title === "string" && typeof i.artists === "string" && i.title.length <= 300 && i.artists.length <= 300);
-        return send(res, 200, { results: await svc.scorePlaylistItems(valid) });
-      }
 
       if (req.method === "GET" && url.pathname === "/api/check") {
         const track = url.searchParams.get("deezerTrack");

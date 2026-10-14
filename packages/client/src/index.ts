@@ -6,7 +6,6 @@ export type Vote = "ai" | "human";
 
 export interface Match {
   deezerTrackId: number;
-  artistId: number;
   title: string;
   artist: string;
   album: string;
@@ -108,67 +107,4 @@ export class DetectorClient {
     if (!res.ok) throw new Error(`Blocklist failed (${res.status})`);
     return ((await res.json()) as { artists: { key: string; name: string }[] }).artists;
   }
-}
-
-export interface PlaylistTrack {
-  uri: string;
-  title: string;
-  artists: string;
-}
-
-export interface PlaylistInfo {
-  id: string;
-  name: string;
-  tracks: PlaylistTrack[];
-  /** Spotify's public view shows at most 100 tracks */
-  capped: boolean;
-}
-
-export interface PlaylistScore {
-  matched: boolean;
-  artist?: { id: number; name: string };
-  score: number | null;
-  verdict: "likely-ai" | "suspicious" | "likely-human" | "unknown";
-  confidence: number;
-  reasons: string[];
-}
-
-export const PLAYLIST_BATCH = 12;
-
-async function jsonOrThrow<T>(res: Response): Promise<T> {
-  const body = (await res.json().catch(() => null)) as (T & { error?: string }) | null;
-  if (res.status === 429) throw new Error("Too many requests, wait a minute and try again.");
-  if (!res.ok || !body) throw new Error(res.status >= 500 ? "Something went wrong on our side. Please try again in a moment." : body?.error ?? `Request failed (${res.status})`);
-  return body;
-}
-
-export async function loadConfig(baseUrl: string): Promise<{ spotifyClientId: string | null }> {
-  try {
-    return await jsonOrThrow(await fetch(`${baseUrl}/api/config`));
-  } catch {
-    return { spotifyClientId: null };
-  }
-}
-
-export async function loadPlaylist(baseUrl: string, id: string): Promise<PlaylistInfo> {
-  return jsonOrThrow(await fetch(`${baseUrl}/api/playlist?id=${encodeURIComponent(id)}`));
-}
-
-/** Scores playlist tracks in batches, reporting progress after each. Results are keyed by the id given for each track. */
-export async function scorePlaylist(
-  baseUrl: string,
-  items: { id: string; title: string; artists: string }[],
-  onProgress?: (done: number, total: number) => void,
-): Promise<Record<string, PlaylistScore>> {
-  const out: Record<string, PlaylistScore> = {};
-  for (let i = 0; i < items.length; i += PLAYLIST_BATCH) {
-    const res = await fetch(`${baseUrl}/api/playlist/score`, {
-      method: "POST",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify({ items: items.slice(i, i + PLAYLIST_BATCH) }),
-    });
-    Object.assign(out, (await jsonOrThrow<{ results: Record<string, PlaylistScore> }>(res)).results);
-    onProgress?.(Math.min(i + PLAYLIST_BATCH, items.length), items.length);
-  }
-  return out;
 }

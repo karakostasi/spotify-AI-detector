@@ -1,0 +1,38 @@
+import type { ArtistProfile, ScoreReport, Signal, SignalResult, Verdict } from "./types.js";
+import { defaultSignals } from "./signals/index.js";
+import { clamp01 } from "./util.js";
+
+export const THRESHOLDS = { likelyAi: 0.7, suspicious: 0.45 };
+
+/** Sum of weights at which we consider the evidence "complete". */
+const FULL_EVIDENCE_WEIGHT = 5;
+
+export function verdictFor(score: number | null): Verdict {
+  if (score === null) return "unknown";
+  if (score >= THRESHOLDS.likelyAi) return "likely-ai";
+  if (score >= THRESHOLDS.suspicious) return "suspicious";
+  return "likely-human";
+}
+
+export function scoreArtist(
+  profile: ArtistProfile,
+  opts: { now?: Date; signals?: Signal[] } = {},
+): ScoreReport {
+  const now = opts.now ?? new Date();
+  const results: SignalResult[] = (opts.signals ?? defaultSignals).map((s) => s(profile, now));
+  const base = { artistKey: profile.key, artistName: profile.name, signals: results };
+
+  const decisive = results.find((r) => r.decisive && r.score !== null && r.score >= 0.95);
+  if (decisive) {
+    return { ...base, score: decisive.score, confidence: 1, verdict: verdictFor(decisive.score) };
+  }
+
+  const active = results.filter((r) => r.score !== null && r.weight > 0);
+  const totalWeight = active.reduce((n, r) => n + r.weight, 0);
+  if (totalWeight === 0) {
+    return { ...base, score: null, confidence: 0, verdict: "unknown" };
+  }
+  const score = clamp01(active.reduce((n, r) => n + r.score! * r.weight, 0) / totalWeight);
+  const confidence = clamp01(totalWeight / FULL_EVIDENCE_WEIGHT);
+  return { ...base, score, confidence, verdict: verdictFor(score) };
+}

@@ -39,3 +39,8 @@ tmp/
 
 # Claude Code local settings
 .claude/settings.local.json
+
+# Project
+*.sqlite
+*.sqlite-wal
+*.sqlite-shm

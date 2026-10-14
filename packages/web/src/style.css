@@ -1,0 +1,23 @@
+:root { color-scheme: dark; font-family: system-ui, sans-serif; }
+body { margin: 0; background: #121212; color: #eee; }
+main { max-width: 900px; margin: 0 auto; padding: 24px 16px 64px; }
+h1 { font-size: 1.5rem; }
+section { background: #1c1c1c; border-radius: 8px; padding: 16px; margin: 16px 0; }
+label { display: block; margin: 8px 0; font-size: .9rem; color: #bbb; }
+input[type=text], select { width: 100%; box-sizing: border-box; padding: 8px; background: #262626; color: #eee; border: 1px solid #333; border-radius: 4px; }
+button { background: #1db954; color: #000; border: 0; border-radius: 16px; padding: 8px 16px; font-weight: 600; cursor: pointer; }
+button.secondary { background: #333; color: #eee; padding: 4px 10px; font-weight: 400; }
+button:disabled { opacity: .5; cursor: default; }
+table { width: 100%; border-collapse: collapse; font-size: .9rem; }
+td, th { text-align: left; padding: 6px 8px; border-bottom: 1px solid #262626; vertical-align: top; }
+.badge { display: inline-block; padding: 1px 8px; border-radius: 10px; font-size: .75rem; font-weight: 700; }
+.likely-ai { background: #e22134; } .suspicious { background: #e8a317; color: #000; } .likely-human { background: #1db954; color: #000; } .unknown { background: #555; }
+.muted { color: #888; } .reasons { font-size: .8rem; color: #aaa; margin: 4px 0 0; padding-left: 16px; }
+.err { color: #ff6b6b; }
+form { display: flex; gap: 8px; margin: 16px 0; }
+form input { flex: 1; padding: 12px; font-size: 1rem; background: #262626; color: #eee; border: 1px solid #333; border-radius: 8px; }
+form button { padding: 0 24px; }
+.small { font-size: .85rem; } a { color: #1db954; }
+.badge.big { font-size: 1rem; padding: 4px 14px; border-radius: 14px; } .pct { margin-left: 8px; font-size: 1.1rem; }
+.signals { list-style: none; padding: 0; margin: 8px 0 0; } .signals li { display: flex; align-items: center; gap: 10px; padding: 4px 0; font-size: .9rem; } .signals li.nodata { color: #777; }
+.bar { flex: none; width: 70px; height: 8px; background: #2c2c2c; border-radius: 4px; overflow: hidden; } .bar i { display: block; height: 100%; background: #e8a317; }

@@ -1,0 +1,13 @@
+{
+  "name": "@aid/web",
+  "version": "0.1.0",
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "typecheck": "tsc -p ."
+  },
+  "dependencies": {
+    "@aid/client": "workspace:*"
+  }
+}

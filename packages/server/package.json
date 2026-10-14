@@ -1,0 +1,14 @@
+{
+  "name": "@aid/server",
+  "version": "0.1.0",
+  "type": "module",
+  "scripts": {
+    "start": "node --import tsx src/main.ts",
+    "test": "node --import tsx --test test/*.test.ts",
+    "typecheck": "tsc -p .",
+    "dev": "tsx watch src/main.ts"
+  },
+  "dependencies": {
+    "@aid/core": "workspace:*"
+  }
+}

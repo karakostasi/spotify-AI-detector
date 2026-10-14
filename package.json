@@ -1,0 +1,22 @@
+{
+  "name": "spotify-ai-detector",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "concurrently -k -n server,web -c blue,green \"pnpm --filter @aid/server dev\" \"pnpm --filter @aid/web dev\"",
+    "build": "pnpm -r --if-present build",
+    "start": "pnpm build && pnpm --filter @aid/server start",
+    "test": "pnpm -r --if-present test",
+    "typecheck": "pnpm -r --if-present typecheck",
+    "cli": "pnpm --filter @aid/cli start"
+  },
+  "devDependencies": {
+    "@types/node": "^24.0.0",
+    "concurrently": "^10.0.6",
+    "esbuild": "^0.25.0",
+    "tsx": "^4.19.0",
+    "typescript": "^5.6.0",
+    "vite": "^6.0.0"
+  },
+  "packageManager": "pnpm@12.11.2"
+}

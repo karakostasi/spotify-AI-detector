@@ -1,0 +1,117 @@
+import { DEFAULT_SERVER, DetectorClient, getUserId, type CheckResponse, type Report } from "@aid/client";
+
+const app = document.getElementById("app")!;
+const esc = (s: string) => s.replace(/[&<>"']/g, (c) => `&#${c.charCodeAt(0)};`);
+const client = new DetectorClient(localStorage.getItem("aid.server") || DEFAULT_SERVER, getUserId(localStorage));
+
+const LABEL: Record<string, string> = { "likely-ai": "Likely AI", suspicious: "Suspicious", "likely-human": "Likely human", unknown: "Not enough evidence" };
+const SOURCE: Record<string, string> = { spotify: "Spotify", youtube: "YouTube", text: "your search" };
+const MAX_REFRESH = 6;
+
+app.innerHTML = `
+  <h1>Is it AI?</h1>
+  <p class="muted">Paste a Spotify or YouTube link, or type an artist name, to see how likely the music is AI-generated.</p>
+  <form id="form">
+    <input type="text" id="q" placeholder="https://open.spotify.com/track/… or https://youtu.be/… or Artist - Song" autocomplete="off" />
+    <button type="submit" id="go">Check</button>
+  </form>
+  <div id="result"></div>
+  <p class="muted small">An estimate from public metadata and community votes, not proof. <a href="/cleaner.html">Clean a whole playlist →</a></p>`;
+
+const input = document.getElementById("q") as HTMLInputElement;
+const result = document.getElementById("result")!;
+let run = 0; // guards against out-of-order responses
+
+async function check(q: string, loader: () => Promise<CheckResponse>, refresh = 0) {
+  const mine = ++run;
+  if (refresh === 0) result.innerHTML = `<section class="muted">Checking…</section>`;
+  let r: CheckResponse;
+  try {
+    r = await loader();
+  } catch (e) {
+    if (mine === run) result.innerHTML = `<section class="err">${esc((e as Error).message)}</section>`;
+    return;
+  }
+  if (mine !== run) return;
+  render(r, q);
+  if (r.report?.pending && refresh < MAX_REFRESH) setTimeout(() => void check(q, loader, refresh + 1), 4000);
+}
+
+function explain(r: Report): string {
+  if (r.verdict === "unknown") return "There isn't enough public data about this artist to say either way.";
+  const lowConf = r.confidence < 0.5 ? " We have little data on this artist, so treat it as a rough guess." : "";
+  if (r.verdict === "likely-ai") return "Several signals point to AI-generated music." + lowConf;
+  if (r.verdict === "suspicious") return "Some signals look like AI, but it isn't clear-cut." + lowConf;
+  return "This looks like a real, established artist." + lowConf;
+}
+
+function render(c: CheckResponse, q: string) {
+  const r = c.report;
+  const parts: string[] = [];
+  if (c.error && !r) parts.push(`<section class="err">${esc(c.error)}</section>`);
+  if (c.input && !c.track && !r) parts.push(`<p class="muted small">Looked for: ${esc(c.input.artist)}${c.input.title ? " – " + esc(c.input.title) : ""} (from ${SOURCE[c.input.source]})</p>`);
+
+  if (c.alternatives.length) {
+    parts.push(`<section><p>${r ? "Not the right track?" : "Did you mean one of these?"}</p>${c.alternatives
+      .map((a) => `<button class="secondary alt" data-id="${a.deezerTrackId}">${esc(a.artist)} – ${esc(a.title)}</button>`)
+      .join(" ")}</section>`);
+  }
+
+  if (r) {
+    const pct = r.score === null ? null : Math.round(r.score * 100);
+    const what = c.track ? `<b>${esc(c.track.title)}</b> by <b>${esc(c.track.artist)}</b>` + (c.track.album ? ` <span class="muted">· ${esc(c.track.album)}</span>` : "") : `Artist <b>${esc(r.artistName)}</b>`;
+    parts.unshift(`
+      <section>
+        <p class="small muted">${c.input ? `From ${SOURCE[c.input.source]}` : ""}${c.track && !c.confident ? " · <b>best guess, double-check this is the right song</b>" : ""}</p>
+        <p>${what}</p>
+        ${
+          r.pending
+            ? `<p><span class="badge big unknown">Gathering more data…</span></p><p class="muted">Preliminary: ${pct === null ? "no score yet" : `${pct}% AI score`}. Checking more sources, this updates automatically.</p>`
+            : `<p><span class="badge big ${r.verdict}">${LABEL[r.verdict]}</span> ${pct === null ? "" : `<span class="pct">${pct}% AI score</span>`}</p><p>${explain(r)}</p>`
+        }
+        <p class="small muted">Why:</p>
+        <ul class="signals">${r.signals
+          .map((s) => `<li class="${s.score === null ? "nodata" : ""}"><span class="bar"><i style="width:${s.score === null ? 0 : Math.round(s.score * 100)}%"></i></span>${esc(s.reason)}</li>`)
+          .join("")}</ul>
+      </section>
+      <section id="vote">
+        <p>What do you think? Votes from people with a good track record count for more.</p>
+        <button class="secondary" data-v="ai">This artist is AI</button> <button class="secondary" data-v="human">This artist is human</button>
+        <span id="voteMsg" class="muted small"></span>
+      </section>`);
+  }
+  result.innerHTML = parts.join("");
+
+  result.querySelectorAll<HTMLButtonElement>("button.alt").forEach((b) => {
+    b.onclick = () => void check(q, () => client.checkTrack(Number(b.dataset.id)));
+  });
+  result.querySelectorAll<HTMLButtonElement>("button[data-v]").forEach((b) => {
+    b.onclick = async () => {
+      const msg = document.getElementById("voteMsg")!;
+      try {
+        await client.vote(r!.artistKey, b.dataset.v as "ai" | "human");
+        msg.textContent = "Thanks, vote recorded.";
+      } catch (e) {
+        msg.innerHTML = `<span class="err">${esc((e as Error).message)}</span>`;
+      }
+    };
+  });
+}
+
+function submit(q: string) {
+  q = q.trim();
+  if (!q) return;
+  history.replaceState({}, "", `?q=${encodeURIComponent(q)}`);
+  void check(q, () => client.check(q));
+}
+
+document.getElementById("form")!.addEventListener("submit", (e) => {
+  e.preventDefault();
+  submit(input.value);
+});
+
+const initial = new URLSearchParams(location.search).get("q");
+if (initial) {
+  input.value = initial;
+  submit(initial);
+}

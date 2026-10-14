@@ -85,13 +85,23 @@ Spotify's Development Mode limits apply here: the app owner needs Premium and ne
 
 ### Real-world presence checks
 
-Three optional layers look for evidence that the act exists as people who perform:
+Optional layers look for evidence that the act exists as people who perform:
 
-- **Wikipedia** works out of the box. It only flags an act when Wikipedia says so itself: Wikipedia's one-line description calling the act AI-generated is treated as decisive, while an AI mention only in the article's lead, or an act covered only inside an article about AI music, is a strong but non-decisive hint. A missing article says nothing, since many real small artists have none.
-- **setlist.fm** (concert history) needs a free key: request one at https://www.setlist.fm/settings/api and set `SETLISTFM_API_KEY`.
-- **YouTube** (third-party live videos) needs a YouTube Data API v3 key from the Google Cloud console, set as `YOUTUBE_API_KEY`. Each lookup uses 100 of the free 10,000 daily quota units, so results are cached for a week.
+- **Wikipedia** (no key). It only flags an act when Wikipedia says so itself: Wikipedia's one-line description calling the act AI-generated is treated as decisive, while an AI mention only in the article's lead, or an act covered only inside an article about AI music, is a strong but non-decisive hint. A missing article says nothing, since many real small artists have none.
+- **Live performances** (no key). MusicBrainz recorded events and live albums count as evidence the act plays live. Finding none says nothing, because MusicBrainz coverage is patchy.
+- **setlist.fm** (free key) adds concert history to the live-performance check, and is thorough enough that finding nothing there is a mild warning.
+- **YouTube** (free key) counts third-party live-performance videos.
 
-Without keys those two layers are skipped and the score uses everything else. Keys are read from the environment, e.g. `SETLISTFM_API_KEY=… YOUTUBE_API_KEY=… pnpm dev`. Google search is deliberately not used: its Custom Search API is closed to new customers and scraping results breaks Google's terms.
+#### Adding the API keys
+
+Without keys the setlist.fm and YouTube checks are skipped (the page shows "not checked"). To enable them:
+
+1. **setlist.fm:** sign in at https://www.setlist.fm, then request a key at https://www.setlist.fm/settings/api.
+2. **YouTube:** in https://console.cloud.google.com create a project, enable "YouTube Data API v3", then Credentials → Create credentials → API key. Restrict the key to the YouTube Data API v3. Each lookup uses 100 of the free 10,000 daily quota units, and results are cached for a week.
+3. **Locally:** `cp .env.example .env`, paste the keys into `.env`, and restart `pnpm dev`. `.env` is git-ignored and excluded from the Docker image.
+4. **On Render:** open the service → Environment → add `SETLISTFM_API_KEY` and `YOUTUBE_API_KEY`, then save (it redeploys). A first-time Blueprint deploy also prompts for them.
+
+Google search is deliberately not used: its Custom Search API is closed to new customers and scraping results breaks Google's terms.
 
 ### Shared blocklist
 

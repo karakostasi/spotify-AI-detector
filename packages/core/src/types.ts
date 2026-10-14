@@ -44,8 +44,11 @@ export interface WikipediaInfo {
 /** Evidence from the wider web that the act exists as real people playing real shows. */
 export interface WebPresence {
   wikipedia?: WikipediaInfo;
-  /** setlist.fm: recorded concerts */
-  live?: { setlists: number };
+  /**
+   * Evidence the act performs live. `setlists` (setlist.fm) is only present when that key is configured;
+   * `mbEvents` and `liveReleases` come from MusicBrainz and need no key.
+   */
+  live?: { setlists?: number; mbEvents?: number; liveReleases?: number };
   /** YouTube: third-party live-performance videos found */
   youtube?: { liveVideos: number };
 }

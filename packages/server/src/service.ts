@@ -54,7 +54,7 @@ export function defaultDeps(): ServiceDeps {
     loadArtistProfile: (id, name) => profileFromArtistId(id, name, undefined, { musicBrainz: null, deezer }),
     lookupMb: (name, isrc) => mb.lookup(name, isrc).catch(() => undefined),
     lookupWeb: (name, mbid) =>
-      lookupWebPresence(name, { mbid, setlistFmKey: process.env.SETLISTFM_API_KEY, youtubeKey: process.env.YOUTUBE_API_KEY }).catch(() => undefined),
+      lookupWebPresence(name, { mbid, musicBrainz: mb, setlistFmKey: process.env.SETLISTFM_API_KEY, youtubeKey: process.env.YOUTUBE_API_KEY }).catch(() => undefined),
   };
 }
 

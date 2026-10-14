@@ -2,10 +2,14 @@
   "name": "@aid/cli",
   "version": "0.1.0",
   "type": "module",
-  "bin": { "aid": "src/main.ts" },
+  "bin": {
+    "aid": "src/main.ts"
+  },
   "scripts": {
-    "start": "node --import tsx src/main.ts",
+    "start": "node --env-file-if-exists=../../.env --import tsx src/main.ts",
     "typecheck": "tsc -p ."
   },
-  "dependencies": { "@aid/core": "workspace:*" }
+  "dependencies": {
+    "@aid/core": "workspace:*"
+  }
 }

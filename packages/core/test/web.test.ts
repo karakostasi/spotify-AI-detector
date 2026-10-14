@@ -1,7 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import {
-  Wikipedia, usableImage, SetlistFm, YouTube, lookupWebPresence, looksAiMade, scoreArtist,
+  Wikipedia, MusicBrainz, usableImage, SetlistFm, YouTube, lookupWebPresence, looksAiMade, scoreArtist,
   wikipedia, livePerformances, youtubeLive, externalPresence,
   type ArtistProfile, type WikipediaInfo,
 } from "../src/index.js";
@@ -89,39 +89,60 @@ test("SetlistFm and YouTube providers parse responses", async () => {
   assert.equal(await yt.liveVideos("Nina Lane"), 2);
 });
 
-test("lookupWebPresence: optional sources are skipped without keys and failures stay isolated", async () => {
-  const f = fakeFetch({ "/Rick_Astley": { body: { type: "standard", title: "Rick Astley", description: "English singer", extract: "An English singer." } } });
-  const noKeys = await lookupWebPresence("Rick Astley", { fetch: f, mbid: "abc" });
-  assert.equal(noKeys.live, undefined);
+const fastMb = (f: typeof fetch) => new MusicBrainz(f, "test", 0);
+
+test("MusicBrainz.liveEvidence reads event and live-album counts", async () => {
+  const f = fakeFetch({ "/event?artist=abc": { body: { "event-count": 13 } }, "/release-group?artist=abc": { body: { "release-group-count": 2 } } });
+  assert.deepEqual(await fastMb(f).liveEvidence("abc"), { events: 13, liveReleases: 2 });
+  assert.deepEqual(await fastMb(fakeFetch({})).liveEvidence("nothing"), { events: 0, liveReleases: 0 });
+});
+
+test("lookupWebPresence: keyless sources always run, keyed ones only with keys, failures stay isolated", async () => {
+  const wikiRoute = { "/Rick_Astley": { body: { type: "standard", title: "Rick Astley", description: "English singer", extract: "An English singer." } } };
+  const mbRoutes = { "/event?artist=abc": { body: { "event-count": 13 } }, "/release-group?artist=abc": { body: { "release-group-count": 2 } } };
+
+  // no keys: Wikipedia and MusicBrainz live evidence still come back, keyed sources are absent
+  const f = fakeFetch({ ...wikiRoute, ...mbRoutes });
+  const noKeys = await lookupWebPresence("Rick Astley", { fetch: f, musicBrainz: fastMb(f), mbid: "abc" });
+  assert.deepEqual(noKeys.live, { setlists: undefined, mbEvents: 13, liveReleases: 2 });
   assert.equal(noKeys.youtube, undefined);
   assert.equal(noKeys.wikipedia?.found, true);
 
-  // setlist.fm blows up (500): Wikipedia and YouTube still come back
-  const f2 = fakeFetch({
-    "/Rick_Astley": { body: { type: "standard", title: "Rick Astley", description: "English singer", extract: "An English singer." } },
-    "api.setlist.fm": { status: 500, body: {} },
-    "youtube/v3/search": { body: { items: [] } },
-  });
-  const mixed = await lookupWebPresence("Rick Astley", { fetch: f2, mbid: "abc", setlistFmKey: "k", youtubeKey: "k" });
-  assert.equal(mixed.live, undefined);
+  // without an MBID there is nothing to look up for live evidence
+  assert.equal((await lookupWebPresence("Rick Astley", { fetch: f, musicBrainz: fastMb(f) })).live, undefined);
+
+  // setlist.fm blows up (500): MusicBrainz evidence, YouTube and Wikipedia still come back
+  const f2 = fakeFetch({ ...wikiRoute, ...mbRoutes, "api.setlist.fm": { status: 500, body: {} }, "youtube/v3/search": { body: { items: [] } } });
+  const mixed = await lookupWebPresence("Rick Astley", { fetch: f2, musicBrainz: fastMb(f2), mbid: "abc", setlistFmKey: "k", youtubeKey: "k" });
+  assert.deepEqual(mixed.live, { setlists: undefined, mbEvents: 13, liveReleases: 2 });
   assert.deepEqual(mixed.youtube, { liveVideos: 0 });
   assert.equal(mixed.wikipedia?.found, true);
+
+  // with a working setlist.fm key its count is included too
+  const f3 = fakeFetch({ ...wikiRoute, ...mbRoutes, "api.setlist.fm": { body: { total: 42 } } });
+  const keyed = await lookupWebPresence("Rick Astley", { fetch: f3, musicBrainz: fastMb(f3), mbid: "abc", setlistFmKey: "k" });
+  assert.equal(keyed.live?.setlists, 42);
 });
 
 test("signals: wikipedia, live performances, youtube", () => {
   const sig = (s: any, web: ArtistProfile["web"]) => s(base({ web }), new Date());
   assert.equal(sig(wikipedia, undefined).score, null);
   assert.equal(sig(wikipedia, { wikipedia: wiki({ found: false }) }).score, null);
-  assert.equal(sig(wikipedia, { wikipedia: wiki({}) }).score, 0.1);
+  assert.equal(sig(wikipedia, { wikipedia: wiki({}) }).score, 0.03);
   const own = sig(wikipedia, { wikipedia: wiki({ aiMentioned: true, aiDescribed: true }) });
   assert.ok(own.decisive && own.score >= 0.95);
   const leadOnly = sig(wikipedia, { wikipedia: wiki({ aiMentioned: true, aiDescribed: false }) });
   assert.ok(!leadOnly.decisive && leadOnly.score >= 0.85);
 
   assert.equal(sig(livePerformances, undefined).score, null);
+  // setlist.fm is thorough: finding nothing there leans AI. MusicBrainz is patchy: finding nothing says nothing.
   assert.ok(sig(livePerformances, { live: { setlists: 0 } }).score >= 0.5);
+  assert.equal(sig(livePerformances, { live: { mbEvents: 0, liveReleases: 0 } }).score, null);
+  assert.equal(sig(livePerformances, { live: { setlists: undefined, mbEvents: 0, liveReleases: 0 } }).score, null);
   assert.ok(sig(livePerformances, { live: { setlists: 30 } }).score <= 0.03);
+  assert.ok(sig(livePerformances, { live: { mbEvents: 13, liveReleases: 2 } }).score <= 0.03, "MusicBrainz evidence alone is enough");
   assert.ok(sig(livePerformances, { live: { setlists: 1 } }).score > sig(livePerformances, { live: { setlists: 10 } }).score);
+  assert.match(sig(livePerformances, { live: { mbEvents: 13, liveReleases: 2 } }).reason, /13 MusicBrainz events, 2 live albums/);
 
   assert.equal(sig(youtubeLive, undefined).score, null);
   assert.ok(sig(youtubeLive, { youtube: { liveVideos: 0 } }).score >= 0.5);
@@ -172,4 +193,23 @@ test("usableImage keeps real Deezer photos and drops placeholders and foreign ho
   assert.equal(usableImage("http://cdn-images.dzcdn.net/images/artist/2a1b/x.jpg"), undefined, "https only");
   assert.equal(usableImage("javascript:alert(1)"), undefined);
   assert.equal(usableImage(undefined), undefined);
+});
+
+test("an established act's evidence adds up to a few percent, not a double-digit floor", () => {
+  const now = new Date("2026-10-01");
+  const established = base({
+    albums: [{ id: "1", title: "Whenever", releaseDate: "2026-01-28", trackCount: 100, recordType: "album" }],
+    topTracks: [150, 210, 260, 180, 330, 200, 240, 190, 300].map((d) => ({ title: "x", durationSec: d })),
+    musicBrainz: { artistFound: true, urlCount: 40, hasBackground: true, recordingFound: true, creditCount: 20 },
+    web: { wikipedia: wiki({}), live: { mbEvents: 13, liveReleases: 2 } },
+  });
+  const r = scoreArtist(established, { now });
+  assert.equal(r.verdict, "likely-human");
+  assert.ok(r.score! < 0.05, `expected under 5%, got ${(r.score! * 100).toFixed(1)}%`);
+});
+
+test("one big back-catalog drop is not treated as a generator pattern", () => {
+  const drop = [1, 2, 3].map((i) => ({ id: String(i), title: `Compilation ${i}`, releaseDate: "2026-01-28", trackCount: 60, recordType: "album" }));
+  const v = scoreArtist(base({ albums: drop }), { now: new Date("2026-10-01") }).signals.find((x) => x.id === "releaseVelocity")!;
+  assert.ok(v.score! < 0.1, `got ${v.score}`);
 });

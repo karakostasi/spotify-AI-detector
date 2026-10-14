@@ -416,3 +416,21 @@ test("withYouTubeIfUncertain spends quota only when it can change the answer", a
   assert.equal((await withYouTubeIfUncertain(unsure, undefined, f)).youtube, undefined, "no key: nothing happens");
   assert.equal(searches, 1);
 });
+
+test("a check that throws is skipped instead of breaking the whole score", () => {
+  function broken(): never {
+    throw new TypeError("Cannot read properties of undefined");
+  }
+  const good = () => ({ id: "good", score: 0.2, weight: 1, reason: "ok" });
+  const r = scoreArtist(base(), { now: new Date(), signals: [broken as any, good] });
+  assert.equal(r.score, 0.2, "the working check still decides the score");
+  const skipped = r.signals.find((x) => x.id === "broken")!;
+  assert.equal(skipped.score, null);
+  assert.match(skipped.reason, /skipped/);
+});
+
+test("data cached in the old YouTube shape ({liveVideos}) no longer crashes scoring", () => {
+  const legacy = base({ name: "Nefeli Fasouli", web: { youtube: { liveVideos: 1 } as any } });
+  assert.equal(youtubeLive(legacy, new Date()).score, null, "treated as not checked");
+  assert.doesNotThrow(() => scoreArtist(legacy, { now: new Date() }));
+});

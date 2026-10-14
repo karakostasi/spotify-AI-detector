@@ -77,10 +77,13 @@ export class DetectorClient {
   }
 
   private async checkResult(res: Response): Promise<CheckResponse> {
-    const body = (await res.json().catch(() => null)) as (CheckResponse & { error?: string }) | null;
+    const body = (await res.json().catch(() => null)) as (Partial<CheckResponse> & { error?: string }) | null;
     if (res.status === 429) throw new Error("Too many requests, wait a minute and try again.");
-    if (!body) throw new Error(`Server error ${res.status}`);
-    return body;
+    // An error body ({ error }) has no result fields, so it must never reach the renderer.
+    if (!res.ok || !body || !Array.isArray(body.alternatives)) {
+      throw new Error(res.status >= 500 ? "Something went wrong on our side. Please try again in a moment." : body?.error ?? `Request failed (${res.status})`);
+    }
+    return body as CheckResponse;
   }
 
   async blocklist(): Promise<{ key: string; name: string }[]> {

@@ -19,7 +19,14 @@ export function scoreArtist(
   opts: { now?: Date; signals?: Signal[] } = {},
 ): ScoreReport {
   const now = opts.now ?? new Date();
-  const results: SignalResult[] = (opts.signals ?? defaultSignals).map((s) => s(profile, now));
+  const results: SignalResult[] = (opts.signals ?? defaultSignals).map((s) => {
+    try {
+      return s(profile, now);
+    } catch {
+      // Malformed or outdated data for one check should leave that check out, not take the whole result down.
+      return { id: s.name || "unknown", score: null, weight: 0, reason: "This check hit an error and was skipped" };
+    }
+  });
   const base = { artistKey: profile.key, artistName: profile.name, signals: results };
 
   const decisive = results.find((r) => r.decisive && r.score !== null && r.score >= 0.95);

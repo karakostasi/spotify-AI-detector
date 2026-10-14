@@ -98,8 +98,9 @@ function render(c: CheckResponse, q: string, settled: boolean) {
   if (c.error && !r) parts.push(`<section class="err">${esc(c.error)}</section>`);
   if (c.input && !c.track && !r) parts.push(`<p class="muted small">Looked for: ${esc(c.input.artist)}${c.input.title ? " – " + esc(c.input.title) : ""} (from ${SOURCE[c.input.source]})</p>`);
 
-  if (c.alternatives.length) {
-    parts.push(`<section><p>${r ? "Not the right track?" : "Did you mean one of these?"}</p>${c.alternatives
+  const alternatives = c.alternatives ?? [];
+  if (alternatives.length) {
+    parts.push(`<section><p>${r ? "Not the right track?" : "Did you mean one of these?"}</p>${alternatives
       .map((a) => `<button class="secondary alt" data-id="${a.deezerTrackId}">${esc(a.artist)} – ${esc(a.title)}</button>`)
       .join(" ")}</section>`);
   }

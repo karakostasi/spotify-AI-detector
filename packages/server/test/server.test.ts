@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import type { AddressInfo } from "node:net";
 import type { ArtistProfile } from "@aid/core";
 import { createApp } from "../src/app.js";
-import { openDb } from "../src/db.js";
+import { cacheSet, openDb } from "../src/db.js";
 import { ScoreService } from "../src/service.js";
 
 const prolific: ArtistProfile = {
@@ -320,4 +320,36 @@ test("YouTube is only queried when the result is uncertain, and the reason is sh
   assert.deepEqual(searched, ["Middle Act"]);
   assert.ok(yt(unsure).score !== null && yt(unsure).score <= 0.3, `got ${yt(unsure).score}`);
   assert.match(yt(unsure).reason, /predates the first release/);
+});
+
+test("cached data in an outdated shape never crashes a check", async () => {
+  const db = openDb();
+  let mbCalls = 0;
+  const svc = new ScoreService(db, {
+    deezer: fakeDeezer as any,
+    fetchText: fakeFetch,
+    loadProfile: async () => structuredClone(prolific),
+    loadArtistProfile: async () => structuredClone(prolific),
+    lookupWikidata: async () => undefined,
+    lookupMb: async () => {
+      mbCalls++;
+      return { artistFound: false, urlCount: 0, hasBackground: false, recordingFound: false, creditCount: 0 };
+    },
+    lookupWeb: async () => ({}),
+    retryDelayMs: 0,
+  });
+  const stale = { info: null, web: { youtube: { liveVideos: 3 } }, partial: false }; // what an older version stored
+
+  // 1. an entry from an older schema version lives under an older key: it is ignored and looked up afresh
+  cacheSet(db, "extra:v2::gen bot:USXXX2400001", stale);
+  const fresh = (await svc.scoreIsrc("USXXX2400001"))!;
+  assert.equal(fresh.pending, true, "old-version entry is not used");
+  await svc.idle();
+  assert.equal(mbCalls, 1);
+
+  // 2. even stale data under the CURRENT key must not take the check down
+  cacheSet(db, "extra:v3::gen bot:USXXX2400001", stale);
+  const r = (await svc.scoreIsrc("USXXX2400001"))!;
+  assert.ok(r.score !== null, "still produces a score");
+  assert.equal(r.signals.find((x) => x.id === "youtubeLive")!.score, null);
 });

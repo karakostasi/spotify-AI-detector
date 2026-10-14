@@ -20,7 +20,7 @@ export const youtubeLive: Signal = (p) => {
     return { id: "youtubeLive", score: null, weight: 0, reason: "YouTube check skipped: the other evidence was already clear" };
   }
   const y = p.web?.youtube;
-  if (!y) return { id: "youtubeLive", score: null, weight: 0, reason: "YouTube live videos not checked" };
+  if (!y || !Array.isArray(y.videos)) return { id: "youtubeLive", score: null, weight: 0, reason: "YouTube live videos not checked" };
 
   const independent = y.videos.filter((v) => !isOwnChannel(v, p.name));
   const channels = new Set(independent.map((v) => v.channelId)).size;

@@ -9,6 +9,11 @@ export const livePerformances: Signal = (p) => {
   const l = p.web?.live;
   if (!l) return { id: "livePerformances", score: null, weight: 0, reason: "Concert history not checked" };
 
+  if (l.unlisted) {
+    // Many real acts, especially smaller and regional ones, are on neither service: that says nothing about whether they play live.
+    return { id: "livePerformances", score: null, weight: 0, reason: "Not listed on setlist.fm or MusicBrainz, so there are no concert records to check" };
+  }
+
   const evidence = (l.setlists ?? 0) + (l.mbEvents ?? 0) + 2 * (l.liveReleases ?? 0);
   if (evidence === 0) {
     // Nothing on setlist.fm is a faint lean at most: regional and smaller acts are poorly covered. MusicBrainz alone is too patchy to hold against anyone.

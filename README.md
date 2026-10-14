@@ -20,7 +20,9 @@ Each signal returns a 0–1 AI-likelihood (or "no opinion") plus a human-readabl
 | Wikipedia | Has a musician/band article, and whether Wikipedia's own description calls the act AI-generated (decisive when it does) | Wikipedia (no key) |
 | Wikidata | A listed real person (birth date, linked official profiles) is strong human evidence; its description calling the act AI-generated is decisive. Also supplies the MusicBrainz id for artists a name search misses | Wikidata (no key) |
 | Live performances | Concerts recorded for the act | setlist.fm (free key, optional) |
-| YouTube live videos | Live footage from independent channels, and especially footage older than the artist's streaming catalog. Only searched when the other evidence leaves the answer open | YouTube Data API (free key, optional) |
+| YouTube live videos | Live footage from independent channels: full-length concerts, recorded venues, and footage older than the artist's streaming catalog | YouTube Data API (free key, optional) |
+| YouTube channel | The artist's official channel: older than the catalog is real history, brand-new with hundreds of uploads and no audience is the mass-production pattern | YouTube Data API (free key, optional) |
+| Audience | Dozens of releases a year with almost no fans on Deezer (a large fan base is mild human evidence) | Deezer |
 | Uniformity | Near-identical track lengths across a catalog | Deezer |
 | Label clustering | Share of a label's artists the crowd flagged | This server |
 
@@ -83,14 +85,19 @@ Optional layers look for evidence that the act exists as people who perform:
 - **Wikidata** (no key). Covers many regional and smaller artists that Wikipedia and MusicBrainz name searches miss. A person listed with a birth date and linked official profiles (website, YouTube, Instagram, Spotify, ...) is strong human evidence, while a plain band entry only counts faintly, since fake acts have social accounts too. Its own description calling an act AI-generated is decisive. Its MusicBrainz id is used to find artists a name search misses.
 - **Live performances** (no key). MusicBrainz recorded events and live albums count as evidence the act plays live. Finding none says nothing, because MusicBrainz coverage is patchy.
 - **setlist.fm** (free key) adds concert history to the live-performance check, and is thorough enough that finding nothing there is a mild warning.
-- **YouTube** (free key) counts live-performance videos from *independent* channels (the artist's own, "- Topic" and VEVO channels don't count). Footage published well before the artist's first release is strong evidence, since a generated act's footage always comes after its releases. It is only searched when the evidence so far is uncertain (score between 12% and 75%): clear cases skip it, which saves nearly all of the free quota, and the page says "skipped". Finding no videos says nothing, because matching YouTube titles to a name is unreliable (non-Latin scripts, spellings).
+- **YouTube** (free key) runs for every check. It looks for live footage and for the artist's own channel:
+  - **Live footage from independent channels.** The artist's own, "- Topic" and VEVO channels don't count. Strong evidence: full-length concerts (20+ minutes), videos tagged with a recording venue or date, and footage published before the artist's first release, since a generated act's footage always comes after its releases. Views are shown too.
+  - **The official channel,** from Wikidata, or the artist's own channel among the results. A channel older than the catalogue is real history, while a channel under a year old with hundreds of videos and almost no subscribers is the pattern of mass-produced music.
+  - Finding no videos says nothing, because matching YouTube titles to a name is unreliable (non-Latin scripts, spellings). If YouTube's quota is used up or the key is rejected, the page says so and retries within minutes.
+- **Concert history by name.** When MusicBrainz doesn't know an act, setlist.fm is searched by name, and its id unlocks the MusicBrainz concert checks too.
+- **Audience.** Dozens of releases in a year with almost no fans on Deezer is the mass-production pattern; a large fan base is mild human evidence.
 
 #### Adding the API keys
 
 Missing evidence is only a faint lean, never a strong sign of AI: regional and newer artists are patchily covered everywhere. Without keys the setlist.fm and YouTube checks are skipped (the page shows "not checked"). To enable them:
 
 1. **setlist.fm:** sign in at https://www.setlist.fm, then request a key at https://www.setlist.fm/settings/api.
-2. **YouTube:** in https://console.cloud.google.com create a project, enable "YouTube Data API v3", then Credentials → Create credentials → API key. Restrict the key to the YouTube Data API v3. Each search uses 100 of the free 10,000 daily quota units. Because it only runs for uncertain artists and results are cached for a week, that is plenty for normal use.
+2. **YouTube:** in https://console.cloud.google.com create a project, enable "YouTube Data API v3", then Credentials → Create credentials → API key. Restrict the key to the YouTube Data API v3. Each check uses about 102 of the free 10,000 daily quota units (the search is 100, the video and channel details 1 each), so roughly 98 new artists a day; results are cached for a week, so repeat checks are free. To stretch the quota, set `YOUTUBE_ONLY_WHEN_UNCERTAIN=1`: YouTube is then skipped when the other evidence is already clearly human or clearly AI.
 3. **Locally:** `cp .env.example .env`, paste the keys into `.env`, and restart `pnpm dev`. `.env` is git-ignored and excluded from the Docker image.
 4. **On Render:** open the service → Environment → add `SETLISTFM_API_KEY` and `YOUTUBE_API_KEY`, then save (it redeploys). A first-time Blueprint deploy also prompts for them.
 

@@ -1,7 +1,7 @@
 import type { DatabaseSync } from "node:sqlite";
 import {
   scoreArtist, normalizeName, profileFromIsrc, profileFromArtistId, lookupWebPresence, needsYouTube, YouTube, Deezer, MusicBrainz, Wikidata, normalizeName as foldName,
-  type ArtistProfile, type MusicBrainzInfo, type ScoreReport, type WebPresence, type WikidataInfo, type YouTubeVideo,
+  type ArtistProfile, type MusicBrainzInfo, type ScoreReport, type WebPresence, type WikidataInfo, type YouTubeResult,
 } from "@aid/core";
 import { Crowd } from "./crowd.js";
 import { cacheEntry, cacheGet, cacheSet } from "./db.js";
@@ -14,7 +14,7 @@ import {
 
 const PROFILE_TTL = 24 * 3600 * 1000;
 /** Bump when the shape of the cached extra data changes, so old entries are ignored instead of crashing the new code. */
-const EXTRA_SCHEMA = 3;
+const EXTRA_SCHEMA = 4;
 const EXTRA_TTL = 7 * 24 * 3600 * 1000;
 /** A lookup where a source failed is retried soon, not trusted for a week. */
 const PARTIAL_TTL = 5 * 60 * 1000;
@@ -69,8 +69,10 @@ export interface ServiceDeps {
   lookupMb: (artistName: string, isrc?: string, mbidHint?: string) => Promise<MusicBrainzInfo | undefined>;
   /** Wikipedia / setlist.fm / YouTube evidence that the act is real; optional sources need API keys */
   lookupWeb: (artistName: string, mbid?: string) => Promise<WebPresence | undefined>;
-  /** YouTube live videos for an artist. Absent when no key is configured. Only called when the score is uncertain. */
-  lookupYouTube?: (artistName: string) => Promise<YouTubeVideo[] | undefined>;
+  /** YouTube live videos and the artist's channel. Absent when no key is configured. */
+  lookupYouTube?: (artistName: string, channelId?: string) => Promise<YouTubeResult | undefined>;
+  /** Save YouTube quota by skipping the search when the other evidence is already clear (default: always search) */
+  youtubeOnlyWhenUncertain?: boolean;
   /**
    * Which optional API keys are configured, e.g. "sy". It is part of the cache key, so adding or removing a key
    * re-runs the lookups instead of serving week-old results that were gathered without it.
@@ -97,7 +99,8 @@ export function defaultDeps(): ServiceDeps {
     lookupMb: (name, isrc, hint) => mb.lookup(name, isrc, hint).catch(() => undefined),
     lookupWeb: (name, mbid) =>
       lookupWebPresence(name, { mbid, musicBrainz: mb, setlistFmKey: process.env.SETLISTFM_API_KEY }).catch(() => undefined),
-    lookupYouTube: process.env.YOUTUBE_API_KEY ? (name) => new YouTube(process.env.YOUTUBE_API_KEY!).liveVideos(name).catch(() => undefined) : undefined,
+    lookupYouTube: process.env.YOUTUBE_API_KEY ? (name, channelId) => new YouTube(process.env.YOUTUBE_API_KEY!).collect(name, { channelId }).catch(() => undefined) : undefined,
+    youtubeOnlyWhenUncertain: process.env.YOUTUBE_ONLY_WHEN_UNCERTAIN === "1",
   };
 }
 
@@ -161,17 +164,20 @@ export class ScoreService {
         const web = await this.deps.lookupWeb(name, info?.artistId);
         let combined: WebPresence | null = web || wikidata ? { ...web, ...(wikidata ? { wikidata } : {}) } : null;
 
-        // YouTube costs quota, so only ask when the evidence so far leaves the answer open.
+        // YouTube runs every time by default. In the quota-saving mode it is skipped when the other evidence is already clear.
+        let youtubeFailed = false;
         if (this.deps.lookupYouTube) {
           const interim = { ...profile, musicBrainz: info, web: combined ?? undefined };
-          if (needsYouTube(scoreArtist(interim))) {
-            const videos = await this.deps.lookupYouTube(name);
-            if (videos) combined = { ...combined, youtube: { videos } };
+          if (!this.deps.youtubeOnlyWhenUncertain || needsYouTube(scoreArtist(interim))) {
+            const youtube = await this.deps.lookupYouTube(name, wikidata?.youtubeChannelId);
+            if (youtube) combined = { ...combined, youtube };
+            youtubeFailed = !youtube || !!youtube.error;
           } else {
             combined = { ...combined, youtubeSkipped: true };
           }
         }
-        cacheSet(this.db, extraKey, { info: info ?? null, web: combined, partial: !info });
+        // A failed source (MusicBrainz or YouTube) is retried in minutes, not trusted for a week
+        cacheSet(this.db, extraKey, { info: info ?? null, web: combined, partial: !info || youtubeFailed });
       }).catch(() => undefined);
     }
 

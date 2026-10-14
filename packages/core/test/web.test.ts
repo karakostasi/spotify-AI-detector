@@ -1,9 +1,9 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import {
-  Wikipedia, Wikidata, MusicBrainz, Deezer, usableImage, SetlistFm, YouTube, lookupWebPresence, withYouTubeIfUncertain, needsYouTube, looksAiMade, scoreArtist,
-  wikipedia, wikidata, livePerformances, youtubeLive, externalPresence, credits,
-  type ArtistProfile, type WikipediaInfo, type WikidataInfo, type YouTubeVideo,
+  Wikipedia, Wikidata, MusicBrainz, Deezer, usableImage, SetlistFm, YouTube, lookupWebPresence, withYouTube, needsYouTube, looksAiMade, scoreArtist,
+  wikipedia, wikidata, livePerformances, youtubeLive, youtubeChannel, audience, externalPresence, credits, isOwnChannel, parseIsoDuration,
+  type ArtistProfile, type WikipediaInfo, type WikidataInfo, type YouTubeVideo, type YouTubeChannel,
 } from "../src/index.js";
 
 type Reply = { status?: number; body: unknown };
@@ -75,25 +75,77 @@ test("SetlistFm and YouTube providers parse responses", async () => {
   assert.equal(await sl.setlistCount("abc"), 42);
   assert.equal(await new SetlistFm("k", fakeFetch({})).setlistCount("none"), 0);
 
-  const item = (title: string, channelId: string, channelTitle = "Some Channel", publishedAt = "2024-07-01T10:00:00Z") => ({ snippet: { title, channelId, channelTitle, publishedAt } });
+  const item = (title: string, channelId: string, channelTitle = "Some Channel", publishedAt = "2024-07-01T10:00:00Z", videoId = title.slice(0, 6)) => ({
+    id: { videoId }, snippet: { title, channelId, channelTitle, publishedAt },
+  });
   const yt = new YouTube("k", fakeFetch({
     "youtube/v3/search": {
       body: {
         items: [
-          item("Nina Lane - Live at Glastonbury 2024", "c1", "Festival Archive"),
-          item("Nina Lane live concert full set", "c2", "Fan Cam"),
-          item("Nina Lane - live in Berlin", "c2", "Fan Cam"),
+          item("Nina Lane - Live at Glastonbury 2024", "c1", "Festival Archive", undefined, "vidA"),
+          item("Nina Lane live concert full set", "c2", "Fan Cam", undefined, "vidB"),
+          item("Nina Lane - live in Berlin", "c2", "Fan Cam", undefined, "vidC"),
           item("Nina Lane - Official Lyric Video", "c3"), // not live
           item("Someone Else live concert", "c4"), // not this artist
           item("Nina Lane live concert (AI generated)", "c5"), // AI-labelled uploads are not evidence
         ],
       },
     },
+    "youtube/v3/videos": {
+      body: { items: [
+        { id: "vidA", contentDetails: { duration: "PT1H12M5S" }, statistics: { viewCount: "250000" }, recordingDetails: { locationDescription: "Worthy Farm, Pilton" } },
+        { id: "vidB", contentDetails: { duration: "PT4M10S" }, statistics: { viewCount: "900" } },
+      ] },
+    },
+    "youtube/v3/channels": {
+      body: { items: [{ id: "c-own", snippet: { title: "Nina Lane", publishedAt: "2011-03-01T00:00:00Z" }, statistics: { subscriberCount: "52000", videoCount: "140", viewCount: "9000000" } }] },
+    },
   }));
-  const videos = await yt.liveVideos("Nina Lane");
-  assert.deepEqual(videos.map((v) => v.channelId), ["c1", "c2", "c2"]);
-  assert.deepEqual(videos[0], { title: "Nina Lane - Live at Glastonbury 2024", channelId: "c1", channelTitle: "Festival Archive", publishedAt: "2024-07-01T10:00:00Z" });
-  assert.deepEqual(await new YouTube("k", fakeFetch({})).liveVideos("Nobody"), []);
+  const r = await yt.collect("Nina Lane", { channelId: "c-own" });
+  assert.deepEqual(r.videos.map((v) => v.channelId), ["c1", "c2", "c2"]);
+  assert.equal(r.error, undefined);
+  // enriched from the videos call: views, length in seconds, and the recording venue
+  assert.deepEqual(r.videos[0], { title: "Nina Lane - Live at Glastonbury 2024", channelId: "c1", channelTitle: "Festival Archive", publishedAt: "2024-07-01T10:00:00Z", videoId: "vidA", views: 250000, durationSec: 4325, venue: "Worthy Farm, Pilton" });
+  assert.equal(r.videos[1]!.durationSec, 250);
+  assert.equal(r.videos[2]!.views, undefined, "a video the details call does not know stays as it was");
+  assert.deepEqual(r.channel, { id: "c-own", title: "Nina Lane", createdAt: "2011-03-01T00:00:00Z", subscribers: 52000, videos: 140, views: 9000000 });
+  assert.deepEqual((await new YouTube("k", fakeFetch({ "youtube/v3/search": { body: { items: [] } } })).collect("Nobody")).videos, []);
+});
+
+test("YouTube errors are named, never thrown, and never carry the API key", async () => {
+  const reply = (status: number, error: unknown) => (async () => ({ ok: false, status, statusText: "", json: async () => ({ error }) }) as unknown as Response) as typeof fetch;
+  const run = (status: number, error: unknown) => new YouTube("SECRET-KEY", reply(status, error)).collect("A");
+  assert.equal((await run(403, { message: "quota", errors: [{ reason: "quotaExceeded" }] })).error, "quota");
+  assert.equal((await run(400, { message: "API key not valid. Please pass a valid API key.", errors: [{ reason: "badRequest" }] })).error, "key");
+  assert.equal((await run(403, { message: "YouTube Data API v3 has not been used in project 1 before or it is disabled.", errors: [{ reason: "accessNotConfigured" }] })).error, "key");
+  assert.equal((await run(500, { message: "backend error" })).error, "failed");
+  const boom = (async () => { throw new Error("connection reset https://x?key=SECRET-KEY"); }) as typeof fetch;
+  const r = await new YouTube("SECRET-KEY", boom).collect("A");
+  assert.equal(r.error, "failed");
+  assert.ok(!JSON.stringify(r).includes("SECRET-KEY"));
+});
+
+test("a channel is found from the artist's own videos when Wikidata lists none, and a missing details call is not fatal", async () => {
+  const f = fakeFetch({
+    "youtube/v3/search": { body: { items: [{ id: { videoId: "v1" }, snippet: { title: "Nina Lane live in Paris", channelId: "own1", channelTitle: "Nina Lane", publishedAt: "2020-01-01T00:00:00Z" } }] } },
+    "youtube/v3/videos": { status: 500, body: {} },
+    "youtube/v3/channels": { body: { items: [{ id: "own1", snippet: { title: "Nina Lane", publishedAt: "2015-01-01T00:00:00Z" }, statistics: { hiddenSubscriberCount: true, videoCount: "30", viewCount: "100" } }] } },
+  });
+  const r = await new YouTube("k", f).collect("Nina Lane");
+  assert.equal(r.videos.length, 1);
+  assert.equal(r.videos[0]!.views, undefined);
+  assert.equal(r.channel?.id, "own1");
+  assert.equal(r.channel?.subscribers, undefined, "hidden subscriber count stays unknown, not zero");
+});
+
+test("duration and own-channel helpers", () => {
+  assert.equal(parseIsoDuration("PT1H12M5S"), 4325);
+  assert.equal(parseIsoDuration("PT45S"), 45);
+  assert.equal(parseIsoDuration("P1DT2H"), 93600);
+  assert.equal(parseIsoDuration("garbage"), undefined);
+  assert.equal(parseIsoDuration(undefined), undefined);
+  assert.ok(isOwnChannel("NinaLaneVEVO", "Nina Lane") && isOwnChannel("Nina Lane - Topic", "Nina Lane") && isOwnChannel("Nina Lane", "Nina Lane"));
+  assert.ok(!isOwnChannel("Festival Archive", "Nina Lane"));
 });
 
 const fastMb = (f: typeof fetch) => new MusicBrainz(f, "test", 0);
@@ -266,7 +318,7 @@ test("Wikidata: finds a real person, their linked profiles and MusicBrainz id; i
   const w = await new Wikidata(f).lookup("Nefeli Fasouli", 9961916);
   assert.deepEqual(w, {
     found: true, id: "Q1", description: "Greek musical artist", aiDescribed: false, isHuman: true,
-    birthYear: 1995, linkCount: 5, musicBrainzId: "bbf9f8d2-bba2-4ed7-a30a-010407269a08",
+    birthYear: 1995, linkCount: 5, musicBrainzId: "bbf9f8d2-bba2-4ed7-a30a-010407269a08", youtubeChannelId: "UCxyz",
   });
   assert.equal((await new Wikidata(fakeFetch({ wbsearchentities: { body: { search: [] } } })).lookup("Nobody")).found, false);
   assert.equal((await new Wikidata(fakeFetch({})).lookup("Nobody")).found, false, "errors are not fatal");
@@ -384,38 +436,123 @@ test("needsYouTube: only worth a search when the result is uncertain", () => {
   assert.equal(needsYouTube(rep(0.5, true)), false, "a decisive signal settles it");
 });
 
-test("withYouTubeIfUncertain spends quota only when it can change the answer", async () => {
+test("withYouTube runs every time by default, and only skips clear cases in the quota-saving mode", async () => {
   let searches = 0;
   const f = (async (url: string) => {
-    if (String(url).includes("youtube/v3/search")) searches++;
-    return { ok: true, status: 200, statusText: "", json: async () => ({ items: [{ snippet: { title: "Nina Lane live in Paris", channelId: "c1", channelTitle: "Archive", publishedAt: "2020-01-01T00:00:00Z" } }] }) } as Response;
+    const u = String(url);
+    if (u.includes("youtube/v3/search")) searches++;
+    const body = u.includes("youtube/v3/search")
+      ? { items: [{ id: { videoId: "v1" }, snippet: { title: "Nina Lane live in Paris", channelId: "c1", channelTitle: "Archive", publishedAt: "2020-01-01T00:00:00Z" } }] }
+      : { items: [] };
+    return { ok: true, status: 200, statusText: "", json: async () => body } as Response;
   }) as typeof fetch;
 
   const humanClear = base({
     name: "Nina Lane",
     musicBrainz: { artistFound: true, urlCount: 20, hasBackground: true, recordingFound: false, creditCount: 0 },
-    web: { wikipedia: wiki({}), wikidata: { found: true, aiDescribed: false, isHuman: true, birthYear: 1980, linkCount: 8 }, live: { mbEvents: 20, liveReleases: 3 } },
+    web: { wikipedia: wiki({}), wikidata: { found: true, aiDescribed: false, isHuman: true, birthYear: 1980, linkCount: 8, youtubeChannelId: "chan1" }, live: { mbEvents: 20, liveReleases: 3 } },
   });
-  const skipped = await withYouTubeIfUncertain(humanClear, "key", f);
-  assert.equal(skipped.youtubeSkipped, true);
-  assert.equal(skipped.youtube, undefined);
-  assert.equal(searches, 0, "clearly human: no quota spent");
+  // default: a clearly human artist is still searched
+  const always = await withYouTube(humanClear, "key", { fetch: f });
+  assert.equal(searches, 1);
+  assert.equal(always.youtube?.videos.length, 1);
+  assert.equal(always.youtubeSkipped, undefined);
+
+  // quota-saving mode: clear cases are skipped, and the page can say why
+  const saved = await withYouTube(humanClear, "key", { fetch: f, onlyWhenUncertain: true });
+  assert.equal(saved.youtubeSkipped, true);
+  assert.equal(saved.youtube, undefined);
+  assert.equal(searches, 1, "no quota spent");
 
   const aiClear = base({ name: "Bot", web: { wikipedia: wiki({ aiMentioned: true, aiDescribed: true }) } });
-  assert.equal((await withYouTubeIfUncertain(aiClear, "key", f)).youtubeSkipped, true);
-  assert.equal(searches, 0, "clearly AI: no quota spent");
+  assert.equal((await withYouTube(aiClear, "key", { fetch: f, onlyWhenUncertain: true })).youtubeSkipped, true);
 
-  const unsure = base({
-    name: "Nina Lane",
-    albums: [{ id: "1", title: "A", releaseDate: "2022-05-01", trackCount: 10 }],
-    musicBrainz: { artistFound: false, urlCount: 0, hasBackground: false, recordingFound: false, creditCount: 0 },
+  // an uncertain artist is searched in either mode
+  const unsure = base({ name: "Nina Lane", albums: [{ id: "1", title: "A", releaseDate: "2022-05-01", trackCount: 10 }], musicBrainz: { artistFound: false, urlCount: 0, hasBackground: false, recordingFound: false, creditCount: 0 } });
+  assert.equal((await withYouTube(unsure, "key", { fetch: f, onlyWhenUncertain: true })).youtube?.videos.length, 1);
+  assert.equal(searches, 2);
+
+  // no key: nothing happens
+  assert.equal((await withYouTube(unsure, undefined, { fetch: f })).youtube, undefined);
+  assert.equal(searches, 2);
+});
+
+test("setlist.fm is searched by name when MusicBrainz doesn't know the act, and its id unlocks the MusicBrainz concert checks", async () => {
+  const f = fakeFetch({
+    "api.setlist.fm/rest/1.0/search/artists": { body: { artist: [{ mbid: "wrong", name: "Nina Lane Tribute" }, { mbid: "mb-nina", name: "Nina Lane" }] } },
+    "api.setlist.fm/rest/1.0/artist/mb-nina/setlists": { body: { total: 33 } },
+    "/event?artist=mb-nina": { body: { "event-count": 4 } },
+    "/release-group?artist=mb-nina": { body: { "release-group-count": 1 } },
+    "/Nina_Lane": { body: { type: "standard", title: "Nina Lane", description: "singer", extract: "A singer." } },
   });
-  const asked = await withYouTubeIfUncertain(unsure, "key", f);
-  assert.equal(searches, 1, "uncertain: asks YouTube");
-  assert.equal(asked.youtube?.videos.length, 1);
+  const w = await lookupWebPresence("Nina Lane", { fetch: f, musicBrainz: fastMb(f), setlistFmKey: "k" }); // no mbid supplied
+  assert.deepEqual(w.live, { setlists: 33, mbEvents: 4, liveReleases: 1 });
+  // without a key there is nothing to search with
+  const noKey = await lookupWebPresence("Nina Lane", { fetch: f, musicBrainz: fastMb(f) });
+  assert.equal(noKey.live, undefined);
+  // a name that doesn't match closely is not adopted, and the act is reported as unlisted (we looked) rather than "not checked"
+  const f2 = fakeFetch({ "search/artists": { body: { artist: [{ mbid: "x", name: "Completely Different" }] } } });
+  assert.deepEqual((await lookupWebPresence("Nina Lane", { fetch: f2, musicBrainz: fastMb(f2), setlistFmKey: "k" })).live, { unlisted: true });
+  const sig = livePerformances(base({ web: { live: { unlisted: true } } }), new Date());
+  assert.equal(sig.score, null);
+  assert.equal(sig.weight, 0, "not being listed anywhere says nothing about whether they play live");
+  assert.match(sig.reason, /Not listed on setlist.fm or MusicBrainz/);
+});
 
-  assert.equal((await withYouTubeIfUncertain(unsure, undefined, f)).youtube, undefined, "no key: nothing happens");
-  assert.equal(searches, 1);
+test("youtubeLive: full-length concerts and recorded venues are strong evidence; errors are explained", () => {
+  const run = (videos: YouTubeVideo[], extra: Partial<ArtistProfile> = {}) =>
+    youtubeLive(base({ name: "Nina Lane", albums: [{ id: "1", title: "A", releaseDate: "2022-05-01", trackCount: 10 }], web: { youtube: { videos } }, ...extra }), new Date());
+  const v = (over: Partial<YouTubeVideo> = {}): YouTubeVideo => ({ ...vid("c1", "Fan Cam", "2024-02-01T00:00:00Z"), ...over });
+
+  const plain = run([v()]);
+  const concert = run([v({ durationSec: 4300, views: 250000 })]);
+  assert.ok(concert.score! < plain.score!, "a 70-minute concert beats a short clip");
+  assert.ok(concert.weight >= 2 && plain.weight < 2);
+  assert.match(concert.reason, /1 full-length concert/);
+  assert.match(concert.reason, /250K views/);
+  assert.match(run([v({ venue: "Roundhouse, London" })]).reason, /recorded venue/);
+  assert.ok(run([v({ venue: "Roundhouse, London" })]).score! <= 0.08);
+  // own-channel footage doesn't count as independent, however long
+  assert.equal(run([v({ channelTitle: "Nina Lane", durationSec: 5000 })]).score, null);
+
+  const err = (error: "quota" | "key" | "failed") => youtubeLive(base({ web: { youtube: { videos: [], error } } }), new Date());
+  assert.match(err("quota").reason, /quota is used up/);
+  assert.match(err("key").reason, /key was rejected/);
+  assert.match(err("failed").reason, /did not respond/);
+  assert.ok([err("quota"), err("key"), err("failed")].every((r) => r.score === null && r.weight === 0), "an error never moves the score");
+});
+
+test("youtubeChannel: older than the catalogue is real history, brand-new and bulk-uploaded is the spam pattern", () => {
+  const now = new Date("2026-10-14");
+  const run = (channel: YouTubeChannel | undefined, albums = [{ id: "1", title: "A", releaseDate: "2022-05-01", trackCount: 10 }]) =>
+    youtubeChannel(base({ name: "Nina Lane", albums, web: { youtube: { videos: [], channel } } }), now);
+  const ch = (over: Partial<YouTubeChannel>): YouTubeChannel => ({ id: "c", title: "Nina Lane", createdAt: "2015-01-01T00:00:00Z", subscribers: 2000, videos: 40, views: 100000, ...over });
+
+  const old = run(ch({}));
+  assert.ok(old.score! <= 0.04 && old.weight >= 1.5);
+  assert.match(old.reason, /created in 2015, before the first release \(2022\)/);
+
+  const spam = run(ch({ createdAt: "2026-03-01T00:00:00Z", videos: 400, subscribers: 12 }));
+  assert.ok(spam.score! >= 0.7, `got ${spam.score}`);
+  assert.match(spam.reason, /under a year old with 400 videos but only 12 subscribers/);
+
+  // young but with a real audience, or hidden subscribers: not the spam pattern
+  assert.equal(run(ch({ createdAt: "2026-03-01T00:00:00Z", videos: 400, subscribers: 50000 })).score, 0.05);
+  assert.equal(run(ch({ createdAt: "2026-03-01T00:00:00Z", videos: 400, subscribers: undefined })).score, null);
+
+  assert.equal(run(undefined).score, null);
+  assert.equal(youtubeChannel(base(), now).score, null, "YouTube not checked at all");
+  assert.equal(run(ch({ createdAt: "2023-01-01T00:00:00Z", subscribers: 500, videos: 10 })).score, null, "an ordinary channel adds no evidence either way");
+});
+
+test("audience: dozens of releases and almost no fans is the mass-production pattern", () => {
+  const now = new Date("2026-10-14");
+  const albums = (n: number) => Array.from({ length: n }, (_, i) => ({ id: String(i), title: `A${i}`, trackCount: 1, recordType: "single", releaseDate: new Date(now.getTime() - i * 7 * 86400000).toISOString().slice(0, 10) }));
+  const run = (fans: number | undefined, n: number) => audience(base({ albums: albums(n), fans }), now);
+  assert.ok(run(40, 30).score! >= 0.7, "30 weekly releases, 40 fans");
+  assert.equal(run(40, 3).score, null, "a new human act with few fans and few releases says nothing");
+  assert.ok(run(900000, 30).score! <= 0.05);
+  assert.equal(run(undefined, 30).score, null);
 });
 
 test("a check that throws is skipped instead of breaking the whole score", () => {
@@ -480,4 +617,30 @@ test("Deezer retries when rate limited instead of reporting 'no data'", async ()
   const notFound = (async () => (n++, { ok: true, status: 200, statusText: "", json: async () => ({ error: { type: "DataException", message: "no data", code: 800 } }) }) as unknown as Response) as typeof fetch;
   assert.equal(await new Deezer(notFound, 0, 0).track(1), null);
   assert.equal(n, 1);
+});
+
+test("MusicBrainz backs off and retries when it is busy (503/429), and gives up after a few tries", async () => {
+  let calls = 0;
+  const busyThenOk = (async () => {
+    calls++;
+    return calls < 3
+      ? ({ ok: false, status: 503, statusText: "Service Unavailable", json: async () => ({ error: "busy" }) } as unknown as Response)
+      : ({ ok: true, status: 200, statusText: "", json: async () => ({ artists: [{ id: "m1", name: "Nina Lane", score: 100 }] }) } as unknown as Response);
+  }) as typeof fetch;
+  const mb = new MusicBrainz(busyThenOk, "t", 0, 0);
+  const info = await mb.lookup("Nina Lane");
+  assert.equal(info.artistFound, true, "got through after two busy answers");
+  assert.ok(calls >= 3);
+
+  // permanently busy: fail (so the caller can retry later) rather than loop
+  let n = 0;
+  const alwaysBusy = (async () => (n++, { ok: false, status: 429, statusText: "Too Many Requests", json: async () => ({}) }) as unknown as Response) as typeof fetch;
+  await assert.rejects(new MusicBrainz(alwaysBusy, "t", 0, 0).lookup("X"));
+  assert.equal(n, 3, "one try plus two retries");
+
+  // other errors are not retried
+  let m = 0;
+  const broken = (async () => (m++, { ok: false, status: 500, statusText: "err", json: async () => ({}) }) as unknown as Response) as typeof fetch;
+  await assert.rejects(new MusicBrainz(broken, "t", 0, 0).lookup("X"));
+  assert.equal(m, 1);
 });

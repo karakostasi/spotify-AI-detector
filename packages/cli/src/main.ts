@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-import { lookupWebPresence, withYouTubeIfUncertain, profileFromArtistName, profileFromIsrc, scoreArtist, type ScoreReport } from "@aid/core";
+import { lookupWebPresence, withYouTube, profileFromArtistName, profileFromIsrc, scoreArtist, type ScoreReport } from "@aid/core";
 
 const USAGE = `Usage:
   aid isrc <ISRC>        Score the artist behind a track (ISRC is on Spotify's track page / API)
@@ -44,7 +44,7 @@ async function main() {
       mbid: profile.musicBrainz?.artistId,
       setlistFmKey: process.env.SETLISTFM_API_KEY,
     })) };
-    profile.web = await withYouTubeIfUncertain(profile, process.env.YOUTUBE_API_KEY);
+    profile.web = await withYouTube(profile, process.env.YOUTUBE_API_KEY, { onlyWhenUncertain: process.env.YOUTUBE_ONLY_WHEN_UNCERTAIN === "1" });
   }
   const report = scoreArtist(profile);
   if (flags.has("--json")) console.log(JSON.stringify(report, null, 2));

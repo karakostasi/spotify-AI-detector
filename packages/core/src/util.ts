@@ -22,3 +22,19 @@ export function normalizeName(s: string): string {
     .replace(/[^a-z0-9]+/g, " ")
     .trim();
 }
+
+const squash = (s: string) => normalizeName(s).replace(/ /g, "");
+
+/** Channels that are the artist's own (including "NinaLaneVEVO" and auto-generated "- Topic" channels). */
+export function isOwnChannel(channelTitle: string, artist: string): boolean {
+  const c = squash(channelTitle);
+  return c.includes(squash(artist)) || /\btopic$/.test(normalizeName(channelTitle)) || c.endsWith("vevo");
+}
+
+/** "PT1H2M3S" -> 3723 */
+export function parseIsoDuration(d: string | undefined): number | undefined {
+  const m = /^P(?:(\d+)D)?T?(?:(\d+)H)?(?:(\d+)M)?(?:(\d+)S)?$/.exec(d ?? "");
+  if (!m || !d || d === "P" || d === "PT") return undefined;
+  const [, days, h, min, sec] = m.map((x) => Number(x ?? 0));
+  return (days ?? 0) * 86400 + (h ?? 0) * 3600 + (min ?? 0) * 60 + (sec ?? 0);
+}

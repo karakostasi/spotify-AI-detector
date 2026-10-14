@@ -9,7 +9,8 @@ import { spotifyBadge } from "./spotifyBadge.js";
 import { wikipedia } from "./wikipedia.js";
 import { wikidata } from "./wikidata.js";
 import { livePerformances } from "./livePerformances.js";
-import { youtubeLive } from "./youtubeLive.js";
+import { youtubeLive, youtubeChannel } from "./youtubeLive.js";
+import { audience } from "./audience.js";
 
 export const defaultSignals: Signal[] = [
   spotifyBadge,
@@ -20,11 +21,13 @@ export const defaultSignals: Signal[] = [
   wikidata,
   livePerformances,
   youtubeLive,
+  youtubeChannel,
   credits,
   uniformity,
+  audience,
   labelClustering,
 ];
 
 export { baseTitle, uniqueReleases } from "./releaseVelocity.js";
-export { wikipedia, wikidata, livePerformances, youtubeLive };
+export { wikipedia, wikidata, livePerformances, youtubeLive, youtubeChannel, audience };
 export { releaseVelocity, uniformity, externalPresence, credits, labelClustering, crowd, spotifyBadge };

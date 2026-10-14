@@ -54,6 +54,8 @@ export interface WikidataInfo {
   linkCount: number;
   /** The MusicBrainz artist id Wikidata links to, which finds artists a name search misses */
   musicBrainzId?: string;
+  /** The artist's official YouTube channel, when Wikidata lists one */
+  youtubeChannelId?: string;
 }
 
 export interface YouTubeVideo {
@@ -62,7 +64,26 @@ export interface YouTubeVideo {
   channelTitle: string;
   /** ISO timestamp */
   publishedAt: string;
+  videoId?: string;
+  views?: number;
+  /** Length in seconds. A full concert runs well over 20 minutes. */
+  durationSec?: number;
+  /** Where it was recorded, when the uploader tagged a venue or date (real shows have one) */
+  venue?: string;
 }
+
+export interface YouTubeChannel {
+  id: string;
+  title: string;
+  /** ISO timestamp */
+  createdAt: string;
+  /** Absent when the channel hides its subscriber count */
+  subscribers?: number;
+  videos: number;
+  views: number;
+}
+
+export type YouTubeError = "quota" | "key" | "failed";
 
 /** Evidence from the wider web that the act exists as real people playing real shows. */
 export interface WebPresence {
@@ -70,12 +91,13 @@ export interface WebPresence {
   wikidata?: WikidataInfo;
   /**
    * Evidence the act performs live. `setlists` (setlist.fm) is only present when that key is configured;
-   * `mbEvents` and `liveReleases` come from MusicBrainz and need no key.
+   * `mbEvents` and `liveReleases` come from MusicBrainz and need no key. `unlisted` means we looked the act up by name
+   * on setlist.fm and it is not listed there (or on MusicBrainz), so there are no concert records to check.
    */
-  live?: { setlists?: number; mbEvents?: number; liveReleases?: number };
-  /** YouTube: videos that name the artist and look like live performances (only looked up when the score is uncertain) */
-  youtube?: { videos: YouTubeVideo[] };
-  /** YouTube was not queried because the other evidence was already clear (saves the daily quota) */
+  live?: { setlists?: number; mbEvents?: number; liveReleases?: number; unlisted?: boolean };
+  /** YouTube: live-performance videos and the artist's own channel */
+  youtube?: { videos: YouTubeVideo[]; channel?: YouTubeChannel; error?: YouTubeError };
+  /** YouTube was deliberately not queried (the optional quota-saving mode, when the other evidence was already clear) */
   youtubeSkipped?: boolean;
 }
 

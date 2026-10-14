@@ -55,6 +55,8 @@ export function parseInput(raw: string): ParsedInput | null {
 const NOISE = /\b(official|video|audio|lyrics?|lyric video|visualizer|hd|4k|hq|remaster(?:ed)?(?: \d{4})?|mv|m\/v|music video|full album)\b/i;
 
 /** "Artist - Title (Official Video)" and "Artist - Topic" style YouTube metadata -> artist/title. */
+const QUOTES = /^[\s"'`“”‘’«»„]+|[\s"'`“”‘’«»„]+$/g;
+
 export function cleanYouTube(title: string, author: string): Hint {
   const strip = (s: string) =>
     s
@@ -64,8 +66,9 @@ export function cleanYouTube(title: string, author: string): Hint {
   const channel = author.replace(/\s*-\s*Topic$/i, "").replace(/VEVO$/i, "").trim();
   const t = strip(title).replace(/\s+(?:M\/V|MV)\s*$/i, "");
   const m = /^(.+?)\s+[-–—|]\s+(.+)$/.exec(t);
-  if (m) return { source: "youtube", artist: m[1]!.trim(), title: m[2]!.trim() };
-  return { source: "youtube", artist: channel, title: t };
+  // YouTube titles often wrap the song in quotes: Artist - "Song"
+  if (m) return { source: "youtube", artist: m[1]!.replace(QUOTES, ""), title: m[2]!.replace(QUOTES, "") };
+  return { source: "youtube", artist: channel, title: t.replace(QUOTES, "") };
 }
 
 export function parseSpotifyMeta(html: string): { title?: string; artist?: string } {

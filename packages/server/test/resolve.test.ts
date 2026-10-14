@@ -89,3 +89,10 @@ test("featured artists and 'M/V' do not count against a title", () => {
   assert.equal(cleanYouTube("PSY - GANGNAM STYLE(강남스타일) M/V", "officialpsy").title, "GANGNAM STYLE(강남스타일)");
   assert.equal(cleanYouTube("Artist - Song MV", "x").title, "Song");
 });
+
+test("quotes around a YouTube song title are not part of the title", () => {
+  assert.deepEqual(cleanYouTube('Kosta Vreto - "One Step Closer" (Official Video)', "Kosta Vreto"), { source: "youtube", artist: "Kosta Vreto", title: "One Step Closer" });
+  assert.equal(cleanYouTube("Artist - “Song Name”", "x").title, "Song Name");
+  assert.equal(cleanYouTube('"Just A Title"', "Some Channel").title, "Just A Title");
+  assert.equal(cleanYouTube("Artist - It's Alive", "x").title, "It's Alive", "an apostrophe inside a title stays");
+});

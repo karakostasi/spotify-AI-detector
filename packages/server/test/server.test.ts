@@ -21,9 +21,10 @@ const prolific: ArtistProfile = {
 };
 
 const fakeTrack = { id: 7, title: "Neon Dreams", isrc: "USXXX2400001", duration: 120, artist: { id: 1, name: "Gen Bot" }, album: { id: 1, title: "A0" } };
+const decoy = { id: 9, title: "Gen Bot - Tribute to Neon Dreams", duration: 100, artist: { id: 9, name: "Neon Dreams" }, album: { id: 9, title: "Tributes" } };
 const fakeDeezer = {
   track: async (id: number) => (id === 7 ? fakeTrack : null),
-  searchTracks: async () => [fakeTrack, { ...fakeTrack, id: 8, title: "Other Song", isrc: "" }],
+  searchTracks: async (q: string) => [fakeTrack, { ...fakeTrack, id: 8, title: "Other Song", isrc: "" }, ...(q.includes("Tribute") || q.includes("Neon Dreams") ? [decoy] : [])],
   searchArtist: async (n: string) => (n === "Gen Bot" ? { id: 1, name: "Gen Bot" } : null),
   searchArtists: async (n: string) => (n === "Gen Bot" ? [{ id: 1, name: "Gen Bot", nb_fan: 500, nb_album: 12 }] : []),
   artist: async (id: number) => (id === 1 ? { id: 1, name: "Gen Bot", nb_fan: 500 } : null),
@@ -39,6 +40,15 @@ const pages: Record<string, { ok: boolean; body: string }> = {
     body: JSON.stringify({ title: "Gen Bot - Neon Dreams (Official Video)", author_name: "Gen Bot" }),
   },
 };
+const yt = (id: string, title: string, author: string) => [
+  `https://www.youtube.com/oembed?url=${encodeURIComponent(`https://www.youtube.com/watch?v=${id}`)}&format=json`,
+  { ok: true, body: JSON.stringify({ title, author_name: author }) },
+] as const;
+Object.assign(pages, Object.fromEntries([
+  yt("DEMOvideo01", "Gen Bot - Unreleased Demo (Official Video)", "Gen Bot"), // song not on Deezer, artist is
+  yt("SWAPPEDvid1", "Neon Dreams - Gen Bot", "Gen Bot"), // title and artist the other way round
+  yt("NOBODYvideo", "Totally Unknown Person - Some Song", "Totally Unknown Person"), // nothing to find
+]));
 const fakeFetch = async (url: string) => {
   const p = pages[url] ?? { ok: false, body: "" };
   return { ok: p.ok, text: async () => p.body, json: async () => JSON.parse(p.body) };
@@ -406,6 +416,46 @@ test("without an AI layer, an unreadable query is just not found; and choosing a
     assert.deepEqual(picked.artistChoices, []);
     assert.equal((await json(await fetch(`${s.base}/api/check?deezerArtist=999`))).error, "Artist not found");
     assert.equal((await fetch(`${s.base}/api/check?deezerArtist=abc`)).status, 400);
+  } finally {
+    s.close();
+  }
+});
+
+test("YouTube link whose song is not on Deezer falls back to checking the detected artist", async () => {
+  const s = await setup();
+  try {
+    const r = await json(await fetch(`${s.base}/api/check?q=${encodeURIComponent("https://www.youtube.com/watch?v=DEMOvideo01")}`));
+    assert.equal(r.error, undefined, "no 'couldn't find data' error");
+    assert.equal(r.report.artistName, "Gen Bot", "the detected artist is searched by name");
+    assert.equal(r.fallback, "artist");
+    assert.equal(r.track, undefined, "we did not pretend to match the song");
+    assert.deepEqual([r.input.artist, r.input.title], ["Gen Bot", "Unreleased Demo"], "what was detected is still reported");
+    assert.equal(r.confident, false);
+  } finally {
+    s.close();
+  }
+});
+
+test("YouTube titles written 'Song - Artist' are retried the other way round", async () => {
+  const s = await setup();
+  try {
+    const r = await json(await fetch(`${s.base}/api/check?q=${encodeURIComponent("https://www.youtube.com/watch?v=SWAPPEDvid1")}`));
+    assert.equal(r.track.title, "Neon Dreams");
+    assert.equal(r.track.artist, "Gen Bot", "not the tribute act that merely contains the words");
+    assert.equal(r.confident, true);
+    assert.equal(r.fallback, undefined, "a real track match, not a fallback");
+  } finally {
+    s.close();
+  }
+});
+
+test("when neither the song nor the artist can be found, the error is still reported", async () => {
+  const s = await setup();
+  try {
+    const r = await json(await fetch(`${s.base}/api/check?q=${encodeURIComponent("https://www.youtube.com/watch?v=NOBODYvideo")}`));
+    assert.equal(r.report, null);
+    assert.match(r.error, /Couldn't/);
+    assert.equal(r.input.artist, "Totally Unknown Person");
   } finally {
     s.close();
   }

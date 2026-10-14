@@ -33,3 +33,4 @@ form button { padding: 0 24px; }
 .progress i { display: block; height: 100%; width: 0; background: #1db954; border-radius: 3px; transition: width .25s ease; }
 button:disabled, input:disabled { cursor: not-allowed; }
 input:disabled { opacity: .7; }
+.note { margin: 10px 0; padding: 8px 12px; font-size: .9rem; color: #e8a317; background: rgba(232, 163, 23, .1); border-left: 3px solid #e8a317; border-radius: 4px; }

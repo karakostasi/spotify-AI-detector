@@ -31,6 +31,8 @@ export interface CheckResponse {
   searchedAs?: string;
   usedAi?: boolean;
   unverifiedClues?: boolean;
+  /** The exact song wasn't found, so the detected artist was checked instead */
+  fallback?: "artist";
 }
 
 export interface TrackRef {

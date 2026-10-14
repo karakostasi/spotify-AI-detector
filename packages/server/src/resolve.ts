@@ -52,7 +52,7 @@ export function parseInput(raw: string): ParsedInput | null {
   return id && YT_ID.test(id) ? { kind: "youtube", id } : null;
 }
 
-const NOISE = /\b(official|video|audio|lyrics?|lyric video|visualizer|hd|4k|hq|remaster(?:ed)?(?: \d{4})?|mv|music video|full album)\b/i;
+const NOISE = /\b(official|video|audio|lyrics?|lyric video|visualizer|hd|4k|hq|remaster(?:ed)?(?: \d{4})?|mv|m\/v|music video|full album)\b/i;
 
 /** "Artist - Title (Official Video)" and "Artist - Topic" style YouTube metadata -> artist/title. */
 export function cleanYouTube(title: string, author: string): Hint {
@@ -62,7 +62,7 @@ export function cleanYouTube(title: string, author: string): Hint {
       .replace(/\s{2,}/g, " ")
       .trim();
   const channel = author.replace(/\s*-\s*Topic$/i, "").replace(/VEVO$/i, "").trim();
-  const t = strip(title);
+  const t = strip(title).replace(/\s+(?:M\/V|MV)\s*$/i, "");
   const m = /^(.+?)\s+[-–—|]\s+(.+)$/.exec(t);
   if (m) return { source: "youtube", artist: m[1]!.trim(), title: m[2]!.trim() };
   return { source: "youtube", artist: channel, title: t };
@@ -94,7 +94,7 @@ function artistMatch(hitArtist: string, hintArtist: string): number {
 /** Strict word match (intersection over union) after dropping remaster/version suffixes, so "Walk My Walk" != "Walk My Way". */
 function titleMatch(a: string, b: string): number {
   const base = (t: string) =>
-    normalizeName(t.replace(/[([{][^)\]}]*[)\]}]/g, " ").replace(/\s-\s.*(remaster|version|edit|mix|live|mono|stereo|bonus).*$/i, " ").replace(/\s-\s(from|feat|ft|with|soundtrack)\b.*$/i, " ").replace(/\b(remaster(ed)?|\d{4})\b/gi, " "));
+    normalizeName(t.replace(/[([{][^)\]}]*[)\]}]/g, " ").replace(/\s-\s.*(remaster|version|edit|mix|live|mono|stereo|bonus).*$/i, " ").replace(/\s-\s(from|feat|ft|with|soundtrack)\b.*$/i, " ").replace(/\s(?:ft|feat|featuring)\.?\s.*$/i, " ").replace(/\b(remaster(ed)?|\d{4})\b/gi, " "));
   const x = words(base(a)), y = words(base(b));
   if (!x.size || !y.size) return 0;
   let n = 0;
@@ -109,7 +109,8 @@ export function similarity(hit: { title: string; artist: string }, hint: Hint): 
 }
 
 export const CONFIDENT = 0.9;
-export const PLAUSIBLE = 0.5;
+/** Above 0.5, which is what a perfect artist match with a completely different song scores: that is "wrong song", not a match. */
+export const PLAUSIBLE = 0.6;
 
 export async function findMatches(dz: Deezer, hint: Hint): Promise<Match[]> {
   const clean = (s: string) => s.replace(/["]/g, " ").replace(/\s+/g, " ").trim();

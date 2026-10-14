@@ -45,6 +45,8 @@ export interface CheckResult {
   searchedAs?: string;
   /** The AI layer helped interpret the query */
   usedAi?: boolean;
+  /** The exact song wasn't found on Deezer, so the detected artist was checked instead */
+  fallback?: "artist";
   /** The query carried clues (instrument, nationality...) that no source could confirm */
   unverifiedClues?: boolean;
 }
@@ -251,10 +253,27 @@ export class ScoreService {
       };
     }
 
-    const matches = await findMatches(this.deps.deezer as Deezer, hint);
-    const best = matches[0];
+    let matches = await findMatches(this.deps.deezer as Deezer, hint);
+    let best = matches[0];
+
+    // "Song - Artist" is as common on YouTube as "Artist - Song", so unless the first reading is a sure thing, also try it
+    // the other way round. A swapped match must be convincing and better, since it is a guess about which half is which.
+    if (!best || best.similarity < CONFIDENT) {
+      const swapped = await findMatches(this.deps.deezer as Deezer, { ...hint, artist: hint.title, title: hint.artist });
+      if (swapped[0] && swapped[0].similarity >= CONFIDENT && swapped[0].similarity > (best?.similarity ?? 0)) [matches, best] = [swapped, swapped[0]];
+    }
+
+    // The exact song isn't on Deezer, but the artist we detected may well be: check them by name instead of giving up.
     if (!best || best.similarity < PLAUSIBLE) {
-      return { ...fail("Couldn't match that to a track on Deezer, so there's nothing to score. Pick a suggestion or search by artist name."), input, alternatives: matches };
+      const r = await resolveArtist(hint.artist, this.resolverDeps());
+      if (r.artist) {
+        return {
+          input, confident: false, alternatives: matches, fallback: "artist",
+          report: await this.scoreArtistId(r.artist.deezerArtistId, r.artist.name),
+          artistChoices: r.choices, searchedAs: r.searchedAs, usedAi: r.usedAi, unverifiedClues: r.unverifiedClues,
+        };
+      }
+      return { ...fail("Couldn't match that to a track or an artist on Deezer, so there's nothing to score. Pick a suggestion or search by artist name."), input, alternatives: matches };
     }
     const scored = await this.scoreTrack(best.deezerTrackId);
     return { input, ...scored, confident: best.similarity >= CONFIDENT, alternatives: matches.slice(1), error: scored.report ? undefined : "Track not found" };

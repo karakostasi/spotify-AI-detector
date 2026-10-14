@@ -116,6 +116,7 @@ export class Wikidata {
       birthYear: birth ? Number(birth[1]) : undefined,
       linkCount: LINK_PROPS.filter((p) => values(e, p).length > 0).length,
       musicBrainzId: typeof mbid === "string" ? mbid : undefined,
+      youtubeChannelId: typeof values(e, "P2397")[0] === "string" ? (values(e, "P2397")[0] as string) : undefined,
     };
   }
 }

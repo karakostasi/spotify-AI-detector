@@ -15,12 +15,22 @@ export class MusicBrainz {
     private f: Fetch = fetch,
     private userAgent = "spotify-ai-detector/0.1 (https://github.com/karakostasi/spotify-AI-detector)",
     minGapMs = 1100,
+    /** Pause before retrying when MusicBrainz says it is busy; doubles each time */
+    private busyDelayMs = 2500,
   ) {
     this.throttle = new Throttle(minGapMs);
   }
 
-  private get<T>(path: string): Promise<T | null> {
-    return this.throttle.run(() => getJson<T>(this.f, `${BASE}${path}`, { "user-agent": this.userAgent }));
+  /** MusicBrainz regularly answers 503 "busy" or 429 under load; waiting a few seconds usually gets through. */
+  private async get<T>(path: string, attempt = 0): Promise<T | null> {
+    try {
+      return await this.throttle.run(() => getJson<T>(this.f, `${BASE}${path}`, { "user-agent": this.userAgent }));
+    } catch (e) {
+      const busy = /^(503|429) /.test((e as Error).message);
+      if (!busy || attempt >= 2) throw e;
+      await new Promise((r) => setTimeout(r, this.busyDelayMs * 2 ** attempt));
+      return this.get<T>(path, attempt + 1);
+    }
   }
 
   /** The Deezer artist id linked from this MusicBrainz artist's external links, if any. */

@@ -290,7 +290,7 @@ test("a failed MusicBrainz lookup is retried once, and an incomplete result is o
   assert.equal(mbCalls, 4);
 });
 
-test("YouTube is only queried when the result is uncertain, and the reason is shown when it is skipped", async () => {
+test("in the quota-saving mode, YouTube is only queried when the result is uncertain, and the reason is shown when it is skipped", async () => {
   const moderate: ArtistProfile = {
     ...structuredClone(prolific),
     key: "deezer:2",
@@ -309,9 +309,10 @@ test("YouTube is only queried when the result is uncertain, and the reason is sh
     lookupWikidata: async () => undefined,
     lookupMb: async () => ({ artistFound: false, urlCount: 0, hasBackground: false, recordingFound: false, creditCount: 0 }),
     lookupWeb: async () => ({}),
+    youtubeOnlyWhenUncertain: true,
     lookupYouTube: async (name) => {
       searched.push(name);
-      return [{ title: "Middle Act live", channelId: "c1", channelTitle: "Archive", publishedAt: "2015-01-01T00:00:00Z" }];
+      return { videos: [{ title: "Middle Act live", channelId: "c1", channelTitle: "Archive", publishedAt: "2015-01-01T00:00:00Z" }] };
     },
     retryDelayMs: 0,
   });
@@ -459,4 +460,60 @@ test("when neither the song nor the artist can be found, the error is still repo
   } finally {
     s.close();
   }
+});
+
+test("by default YouTube runs for every artist, clear or not, and gets the channel Wikidata lists", async () => {
+  const searched: { name: string; channelId?: string }[] = [];
+  const svc = new ScoreService(openDb(), {
+    deezer: fakeDeezer as any,
+    fetchText: fakeFetch,
+    loadProfile: async () => structuredClone(prolific), // 50 releases a year: a "clearly AI-looking" artist, which the saving mode would skip
+    loadArtistProfile: async () => structuredClone(prolific),
+    lookupWikidata: async () => ({ found: true, aiDescribed: false, isHuman: true, linkCount: 3, youtubeChannelId: "UCchan" }),
+    lookupMb: async () => ({ artistFound: false, urlCount: 0, hasBackground: false, recordingFound: false, creditCount: 0 }),
+    lookupWeb: async () => ({}),
+    lookupYouTube: async (name, channelId) => {
+      searched.push({ name, channelId });
+      return { videos: [], channel: { id: "UCchan", title: "Gen Bot", createdAt: "2012-01-01T00:00:00Z", subscribers: 90000, videos: 50, views: 1 } };
+    },
+    retryDelayMs: 0,
+  });
+  await svc.scoreIsrc("USXXX2400001");
+  await svc.idle();
+  const r = (await svc.scoreIsrc("USXXX2400001"))!;
+  assert.deepEqual(searched, [{ name: "Gen Bot", channelId: "UCchan" }]);
+  const ch = r.signals.find((x) => x.id === "youtubeChannel")!;
+  assert.ok(ch.score !== null, "the channel evidence reaches the score");
+  assert.equal(r.signals.find((x) => x.id === "youtubeLive")!.reason.includes("skipped"), false);
+});
+
+test("a YouTube failure is explained, not hidden, and retried within minutes instead of cached for a week", async () => {
+  const db = openDb();
+  let calls = 0;
+  let quota = true;
+  const svc = new ScoreService(db, {
+    deezer: fakeDeezer as any,
+    fetchText: fakeFetch,
+    loadProfile: async () => structuredClone(prolific),
+    loadArtistProfile: async () => structuredClone(prolific),
+    lookupWikidata: async () => undefined,
+    lookupMb: async () => ({ artistFound: true, urlCount: 5, hasBackground: false, recordingFound: false, creditCount: 0 }),
+    lookupWeb: async () => ({}),
+    lookupYouTube: async () => (calls++, quota ? { videos: [], error: "quota" as const } : { videos: [{ title: "Gen Bot live", channelId: "c1", channelTitle: "Archive", publishedAt: "2024-01-01T00:00:00Z" }] }),
+    retryDelayMs: 0,
+  });
+  const score = async () => { const r = await svc.scoreIsrc("USXXX2400001"); await svc.idle(); return r!; };
+  await score();
+  const failed = await score();
+  assert.equal(calls, 1);
+  assert.match(failed.signals.find((x) => x.id === "youtubeLive")!.reason, /quota is used up/);
+  await score();
+  assert.equal(calls, 1, "within the short window the failure is not retried on every request");
+
+  quota = false;
+  db.exec("UPDATE cache SET ts = ts - 10 * 60 * 1000 WHERE k LIKE 'extra:%'"); // 10 minutes later
+  await score(); // expired: triggers a fresh lookup
+  await svc.idle();
+  assert.equal(calls, 2, "the failed lookup was retried");
+  assert.equal((await score()).signals.find((x) => x.id === "youtubeLive")!.reason.includes("quota"), false);
 });

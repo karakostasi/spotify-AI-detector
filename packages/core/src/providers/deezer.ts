@@ -1,5 +1,5 @@
 import type { AlbumInfo, TrackSummary } from "../types.js";
-import { getJson, type Fetch } from "./http.js";
+import { getJson, Throttle, type Fetch } from "./http.js";
 import { normalizeName } from "../util.js";
 
 const BASE = "https://api.deezer.com";
@@ -35,11 +35,29 @@ export function usableImage(url: string | undefined): string | undefined {
   return /^https:\/\/[a-z0-9-]+\.dzcdn\.net\//i.test(url) ? url : undefined;
 }
 
-export class Deezer {
-  constructor(private f: Fetch = fetch) {}
+/** Deezer allows about 50 requests per 5 seconds; going over returns error code 4 instead of data. */
+const QUOTA_ERROR = 4;
 
-  private async get<T>(path: string): Promise<T | null> {
-    const data = await getJson<T & DzError>(this.f, `${BASE}${path}`);
+export class Deezer {
+  private throttle?: Throttle;
+
+  /**
+   * @param minGapMs minimum pause between requests across everything sharing this instance (0 = none). A busy server
+   *   should set about 120 so a burst of lookups, like scanning a playlist, stays under Deezer's rate limit.
+   * @param retryDelayMs wait before retrying a request that hit the rate limit
+   */
+  constructor(private f: Fetch = fetch, minGapMs = 0, private retryDelayMs = 1100) {
+    if (minGapMs > 0) this.throttle = new Throttle(minGapMs);
+  }
+
+  private async get<T>(path: string, retries = 2): Promise<T | null> {
+    const call = () => getJson<T & DzError>(this.f, `${BASE}${path}`);
+    const data = await (this.throttle ? this.throttle.run(call) : call());
+    // A rate-limit answer must not be mistaken for "no data", or an empty result gets cached as the truth.
+    if (data?.error?.code === QUOTA_ERROR && retries > 0) {
+      await new Promise((r) => setTimeout(r, this.retryDelayMs));
+      return this.get<T>(path, retries - 1);
+    }
     if (!data || data.error) return null;
     return data;
   }

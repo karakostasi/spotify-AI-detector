@@ -20,7 +20,8 @@ test("parseInput rejects other hosts, bad ids and lookalikes", () => {
   assert.equal(parseInput("https://evil.com/open.spotify.com/track/" + ID), null);
   assert.equal(parseInput("https://open.spotify.com.evil.com/track/" + ID), null);
   assert.equal(parseInput("https://open.spotify.com/track/short"), null);
-  assert.equal(parseInput("https://open.spotify.com/playlist/" + ID), null);
+  assert.deepEqual(parseInput("https://open.spotify.com/playlist/" + ID + "?si=abc"), { kind: "spotify-playlist", id: ID });
+  assert.equal(parseInput("https://open.spotify.com/album/" + ID), null);
   assert.equal(parseInput("https://www.youtube.com/watch?v=../../etc"), null);
   assert.equal(parseInput(""), null);
 });
@@ -62,4 +63,13 @@ test("artist match rejects lookalike artists but accepts credited collaborations
   assert.ok(similarity({ artist: "The Velvet Sundown Unplugged", title: "Dust On The Wind" }, hint) < CONFIDENT);
   const collab = { source: "youtube" as const, artist: "Daft Punk & Pharrell Williams", title: "Get Lucky" };
   assert.ok(similarity({ artist: "Daft Punk", title: "Get Lucky" }, collab) >= CONFIDENT);
+});
+
+test("film and feature suffixes on a Spotify title don't stop it matching the plain Deezer title", () => {
+  const spotify = { source: "text" as const, artist: "Noah Kahan, The Hunger Games", title: "Draw You Out - From The Hunger Games: Sunrise on the Reaping - The Album" };
+  assert.ok(similarity({ artist: "Noah Kahan", title: "Draw You Out" }, spotify) >= CONFIDENT, "a collaborator credit and a film suffix");
+  const feat = { source: "text" as const, artist: "Sam Fender, Olivia Dean", title: "Rein Me In (with Olivia Dean)" };
+  assert.ok(similarity({ artist: "Sam Fender", title: "Rein Me In" }, feat) >= CONFIDENT);
+  // but a genuinely different song by the same artist is still not a match
+  assert.ok(similarity({ artist: "Sam Fender", title: "Seventeen Going Under" }, feat) < 0.7);
 });

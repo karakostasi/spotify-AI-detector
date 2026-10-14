@@ -37,3 +37,12 @@ form button { padding: 0 24px; }
 .progress i { display: block; height: 100%; width: 0; background: #1db954; border-radius: 3px; transition: width .25s ease; }
 button:disabled, input:disabled { cursor: not-allowed; }
 input:disabled { opacity: .7; }
+.pllist { list-style: none; margin: 8px 0; padding: 0; }
+.plrow { padding: 8px 0; border-bottom: 1px solid #262626; }
+.plrow label { display: flex; gap: 10px; align-items: flex-start; cursor: pointer; }
+.plrow input { margin-top: 4px; }
+.ok { color: #1db954; }
+#cleanArea button, #cidForm button { margin-top: 6px; }
+#cidForm { display: flex; gap: 8px; margin: 8px 0; }
+#cidForm input { flex: 1; padding: 8px; background: #262626; color: #eee; border: 1px solid #333; border-radius: 6px; }
+code { background: #262626; padding: 1px 5px; border-radius: 4px; font-size: .85em; }

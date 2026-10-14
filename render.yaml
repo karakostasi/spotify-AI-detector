@@ -18,3 +18,5 @@ services:
         sync: false
       - key: AI_DAILY_LIMIT
         sync: false
+      - key: SPOTIFY_CLIENT_ID
+        sync: false

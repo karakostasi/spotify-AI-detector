@@ -1,7 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import {
-  Wikipedia, Wikidata, MusicBrainz, usableImage, SetlistFm, YouTube, lookupWebPresence, withYouTubeIfUncertain, needsYouTube, looksAiMade, scoreArtist,
+  Wikipedia, Wikidata, MusicBrainz, Deezer, usableImage, SetlistFm, YouTube, lookupWebPresence, withYouTubeIfUncertain, needsYouTube, looksAiMade, scoreArtist,
   wikipedia, wikidata, livePerformances, youtubeLive, externalPresence, credits,
   type ArtistProfile, type WikipediaInfo, type WikidataInfo, type YouTubeVideo,
 } from "../src/index.js";
@@ -457,4 +457,27 @@ test("a signal or two is not enough for a verdict: low evidence reads 'not enoug
     { now },
   );
   assert.equal(solid.verdict, "likely-human");
+});
+
+test("Deezer retries when rate limited instead of reporting 'no data'", async () => {
+  let calls = 0;
+  const f = (async () => {
+    calls++;
+    const body = calls < 3 ? { error: { type: "Exception", message: "Quota limit exceeded", code: 4 } } : { id: 7, title: "ok", isrc: "X", duration: 1, artist: { id: 1, name: "A" }, album: { id: 1, title: "B" } };
+    return { ok: true, status: 200, statusText: "", json: async () => body } as Response;
+  }) as typeof fetch;
+  const t = await new Deezer(f, 0, 0).track(7);
+  assert.equal(t?.id, 7);
+  assert.equal(calls, 3, "two rate-limited answers, then the real one");
+
+  // still limited after the retries: give up with null rather than looping forever
+  calls = -100;
+  assert.equal(await new Deezer(f, 0, 0).track(7), null);
+  assert.equal(calls, -97);
+
+  // other errors (not found) are not retried
+  let n = 0;
+  const notFound = (async () => (n++, { ok: true, status: 200, statusText: "", json: async () => ({ error: { type: "DataException", message: "no data", code: 800 } }) }) as unknown as Response) as typeof fetch;
+  assert.equal(await new Deezer(notFound, 0, 0).track(1), null);
+  assert.equal(n, 1);
 });

@@ -5,6 +5,7 @@ export type Source = "spotify" | "youtube" | "text";
 export type ParsedInput =
   | { kind: "spotify-track"; id: string }
   | { kind: "spotify-artist"; id: string }
+  | { kind: "spotify-playlist"; id: string }
   | { kind: "youtube"; id: string }
   | { kind: "text"; text: string };
 
@@ -16,6 +17,8 @@ export interface Hint {
 
 export interface Match {
   deezerTrackId: number;
+  /** Deezer's id for the credited artist, straight from the search result */
+  artistId: number;
   title: string;
   artist: string;
   album: string;
@@ -39,8 +42,8 @@ export function parseInput(raw: string): ParsedInput | null {
   }
   const host = u.hostname.replace(/^(www|m|music)\./, "");
   if (host === "open.spotify.com") {
-    const m = /^\/(?:intl-[a-z-]+\/)?(track|artist)\/([A-Za-z0-9]+)/.exec(u.pathname);
-    if (m && SPOTIFY_ID.test(m[2]!)) return { kind: m[1] === "track" ? "spotify-track" : "spotify-artist", id: m[2]! };
+    const m = /^\/(?:intl-[a-z-]+\/)?(track|artist|playlist)\/([A-Za-z0-9]+)/.exec(u.pathname);
+    if (m && SPOTIFY_ID.test(m[2]!)) return { kind: `spotify-${m[1] as "track" | "artist" | "playlist"}`, id: m[2]! };
     return null;
   }
   let id: string | null = null;
@@ -94,7 +97,7 @@ function artistMatch(hitArtist: string, hintArtist: string): number {
 /** Strict word match (intersection over union) after dropping remaster/version suffixes, so "Walk My Walk" != "Walk My Way". */
 function titleMatch(a: string, b: string): number {
   const base = (t: string) =>
-    normalizeName(t.replace(/[([{][^)\]}]*[)\]}]/g, " ").replace(/\s-\s.*(remaster|version|edit|mix|live|mono|stereo|bonus).*$/i, " ").replace(/\b(remaster(ed)?|\d{4})\b/gi, " "));
+    normalizeName(t.replace(/[([{][^)\]}]*[)\]}]/g, " ").replace(/\s-\s.*(remaster|version|edit|mix|live|mono|stereo|bonus).*$/i, " ").replace(/\s-\s(from|feat|ft|with|soundtrack)\b.*$/i, " ").replace(/\b(remaster(ed)?|\d{4})\b/gi, " "));
   const x = words(base(a)), y = words(base(b));
   if (!x.size || !y.size) return 0;
   let n = 0;
@@ -115,8 +118,14 @@ export async function findMatches(dz: Deezer, hint: Hint): Promise<Match[]> {
   const clean = (s: string) => s.replace(/["]/g, " ").replace(/\s+/g, " ").trim();
   const queries = new Set<string>();
   if (hint.title) {
-    queries.add(`artist:"${clean(hint.artist)}" track:"${clean(hint.title)}"`);
-    queries.add(`${clean(hint.artist)} ${clean(hint.title)}`);
+    // Feature credits, "(with X)" and "- From the film" suffixes confuse Deezer's search, so also try without them.
+    const bare = clean(hint.title.replace(/[([{][^)\]}]*[)\]}]/g, " ").replace(/\s-\s.*$/, " "));
+    const lead = clean(hint.artist.split(/,|&| feat\.? /i)[0] ?? hint.artist);
+    for (const [a, t] of [[clean(hint.artist), clean(hint.title)], [lead, bare], [clean(hint.artist), bare]] as const) {
+      if (!a || !t) continue;
+      queries.add(`artist:"${a}" track:"${t}"`);
+      queries.add(`${a} ${t}`);
+    }
   } else {
     queries.add(clean(hint.artist));
   }
@@ -128,6 +137,7 @@ export async function findMatches(dz: Deezer, hint: Hint): Promise<Match[]> {
   return [...seen.values()]
     .map((h) => ({
       deezerTrackId: h.id,
+      artistId: h.artist.id,
       title: h.title,
       artist: h.artist.name,
       album: h.album.title,

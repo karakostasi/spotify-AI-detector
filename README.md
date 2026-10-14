@@ -8,7 +8,7 @@ Paste a Spotify or YouTube link (or type an artist name) and get a score with th
 
 ## How it scores
 
-Each signal returns a 0–1 AI-likelihood (or "no opinion") plus a human-readable reason. The engine takes a weighted average and reports a confidence based on how much evidence it had.
+Each signal returns a 0–1 AI-likelihood (or "no opinion") plus a human-readable reason. The engine takes a weighted average and reports a confidence based on how much evidence it had. Because it is an average, evidence that a real person exists (a recorded concert, live footage, an old channel) must score low from the first piece, with its *weight* growing as there is more of it; a check that scores a little higher than the rest would drag the result up even though it points the human way. A Wikidata or Wikipedia entry only counts as strongly as it can be tied to this exact artist, since many people share a name.
 
 | Signal | What it looks at | Source |
 | --- | --- | --- |

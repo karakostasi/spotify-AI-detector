@@ -318,7 +318,7 @@ test("Wikidata: finds a real person, their linked profiles and MusicBrainz id; i
   const w = await new Wikidata(f).lookup("Nefeli Fasouli", 9961916);
   assert.deepEqual(w, {
     found: true, id: "Q1", description: "Greek musical artist", aiDescribed: false, isHuman: true,
-    birthYear: 1995, linkCount: 5, musicBrainzId: "bbf9f8d2-bba2-4ed7-a30a-010407269a08", youtubeChannelId: "UCxyz",
+    birthYear: 1995, linkCount: 5, musicBrainzId: "bbf9f8d2-bba2-4ed7-a30a-010407269a08", youtubeChannelId: "UCxyz", verified: true,
   });
   assert.equal((await new Wikidata(fakeFetch({ wbsearchentities: { body: { search: [] } } })).lookup("Nobody")).found, false);
   assert.equal((await new Wikidata(fakeFetch({})).lookup("Nobody")).found, false, "errors are not fatal");
@@ -643,4 +643,57 @@ test("MusicBrainz backs off and retries when it is busy (503/429), and gives up 
   const broken = (async () => (m++, { ok: false, status: 500, statusText: "err", json: async () => ({}) }) as unknown as Response) as typeof fetch;
   await assert.rejects(new MusicBrainz(broken, "t", 0, 0).lookup("X"));
   assert.equal(m, 1);
+});
+
+test("a recorded concert counts as human evidence, with weight that grows with the amount", () => {
+  const sig = (live: object) => livePerformances(base({ web: { live } }), new Date());
+  const one = sig({ setlists: 1 });
+  const many = sig({ setlists: 30 });
+  assert.ok(one.score! <= 0.12, `one concert is already human evidence, got ${one.score}`);
+  assert.ok(many.score! <= 0.03);
+  assert.ok(one.weight < many.weight, "a long history counts for more than a single concert");
+  assert.ok(one.weight >= 1 && many.weight >= 2.5);
+});
+
+test("regression: adding the concert and YouTube checks must not push a real artist's score up much", () => {
+  // The signals for a real, modest artist: four checks say 3-10%. Then concert history (1 concert) and YouTube are added.
+  const now = new Date("2026-10-14");
+  const baseline = base({
+    name: "Jay Hooks",
+    albums: [{ id: "1", title: "A", releaseDate: "2018-01-01", trackCount: 10, recordType: "album" }],
+    musicBrainz: { artistFound: true, artistId: "mb-1", urlCount: 9, hasBackground: true, recordingFound: false, creditCount: 0 },
+    web: { wikipedia: wiki({}), wikidata: { found: true, aiDescribed: false, isHuman: true, birthYear: 1959, linkCount: 0 } },
+  });
+  const before = scoreArtist(baseline, { now }).score!;
+  const withChecks = scoreArtist(
+    {
+      ...baseline,
+      web: {
+        ...baseline.web,
+        live: { setlists: 1 },
+        youtube: { videos: [vid("a", "Fan Cam", "2024-01-01T00:00:00Z"), vid("b", "Festival", "2023-01-01T00:00:00Z"), vid("c", "Bar Cam", "2022-01-01T00:00:00Z")].map((v) => ({ ...v, views: 3000 })), channel: { id: "c", title: "Jay Hooks Band", createdAt: "2010-01-01T00:00:00Z", subscribers: 37000, videos: 80, views: 1e6 } },
+      },
+    },
+    { now },
+  ).score!;
+  assert.ok(withChecks - before < 0.02, `more human evidence moved the score from ${(before * 100).toFixed(1)}% to ${(withChecks * 100).toFixed(1)}%`);
+  assert.ok(withChecks < 0.08, `got ${(withChecks * 100).toFixed(1)}%`);
+});
+
+test("wikidata: a person with the same name is only evidence when something ties the entry to this artist", () => {
+  const sig = (w: object, musicBrainz?: object) =>
+    wikidata(base({ musicBrainz: musicBrainz as any, web: { wikidata: { found: true, aiDescribed: false, isHuman: true, birthYear: 1959, linkCount: 0, ...w } } }), new Date());
+  const unverified = sig({});
+  assert.ok(unverified.weight <= 0.5 && unverified.score! >= 0.15, "no links and no id match: weak");
+  assert.match(unverified.reason, /nothing links that entry to this artist/);
+
+  const verified = sig({ verified: true });
+  assert.ok(verified.weight >= 1.5 && verified.score! <= 0.1, "linked by Deezer id: trusted");
+  const byMb = sig({ musicBrainzId: "mb-1" }, { artistFound: true, artistId: "mb-1", urlCount: 1, hasBackground: false, recordingFound: false, creditCount: 0 });
+  assert.ok(byMb.weight >= 1.5, "the MusicBrainz ids agree: trusted");
+  assert.ok(sig({ linkCount: 5 }).weight >= 1.5, "five linked official profiles make a mix-up very unlikely");
+
+  const different = sig({ musicBrainzId: "mb-OTHER", linkCount: 9 }, { artistFound: true, artistId: "mb-1", urlCount: 1, hasBackground: false, recordingFound: false, creditCount: 0 });
+  assert.equal(different.score, null, "a different MusicBrainz id means a different person");
+  assert.match(different.reason, /different artist/);
 });

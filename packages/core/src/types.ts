@@ -47,6 +47,8 @@ export interface WikidataInfo {
   description?: string;
   /** Wikidata's one-line description calls the act AI-generated */
   aiDescribed: boolean;
+  /** The entry links to this exact Deezer artist, so it is the same act and not just someone with the same name */
+  verified?: boolean;
   /** Listed as a human (instance of: human) */
   isHuman: boolean;
   birthYear?: number;

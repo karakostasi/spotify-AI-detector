@@ -2,7 +2,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import {
   Wikipedia, MusicBrainz, usableImage, SetlistFm, YouTube, lookupWebPresence, looksAiMade, scoreArtist,
-  wikipedia, livePerformances, youtubeLive, externalPresence,
+  wikipedia, livePerformances, youtubeLive, externalPresence, credits,
   type ArtistProfile, type WikipediaInfo,
 } from "../src/index.js";
 
@@ -212,4 +212,12 @@ test("one big back-catalog drop is not treated as a generator pattern", () => {
   const drop = [1, 2, 3].map((i) => ({ id: String(i), title: `Compilation ${i}`, releaseDate: "2026-01-28", trackCount: 60, recordType: "album" }));
   const v = scoreArtist(base({ albums: drop }), { now: new Date("2026-10-01") }).signals.find((x) => x.id === "releaseVelocity")!;
   assert.ok(v.score! < 0.1, `got ${v.score}`);
+});
+
+test("credits: listed credits help, an empty list says nothing", () => {
+  const mb = (creditCount: number) => credits(base({ musicBrainz: { artistFound: true, urlCount: 0, hasBackground: false, recordingFound: true, creditCount } }), new Date());
+  assert.equal(mb(0).score, null, "most real recordings have no credits entered on MusicBrainz");
+  assert.equal(mb(0).weight, 0);
+  assert.ok(mb(6).score! <= 0.03);
+  assert.ok(mb(2).score! <= 0.1);
 });

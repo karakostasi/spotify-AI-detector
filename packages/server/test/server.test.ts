@@ -198,3 +198,31 @@ test("rate limiting kicks in", async () => {
     s.close();
   }
 });
+
+test("adding an API key re-runs lookups instead of serving results gathered without it", async () => {
+  const run = async (tag: string, db: ReturnType<typeof openDb>) => {
+    let web = 0;
+    const svc = new ScoreService(db, {
+      deezer: fakeDeezer as any,
+      fetchText: fakeFetch,
+      loadProfile: async () => structuredClone(prolific),
+      loadArtistProfile: async () => structuredClone(prolific),
+      lookupMb: async () => undefined,
+      lookupWeb: async () => {
+        web++;
+        return {};
+      },
+      webKeyTag: tag,
+    });
+    await svc.scoreIsrc("USXXX2400001");
+    await svc.idle();
+    await svc.scoreIsrc("USXXX2400001"); // second call is served from cache
+    await svc.idle();
+    return web;
+  };
+  const db = openDb();
+  assert.equal(await run("", db), 1, "first run looks up once, then caches");
+  assert.equal(await run("", db), 0, "same keys: cached");
+  assert.equal(await run("sy", db), 1, "keys added: looked up again");
+  assert.equal(await run("sy", db), 0, "and cached again under the new keys");
+});

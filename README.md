@@ -16,7 +16,7 @@ Each signal returns a 0–1 AI-likelihood (or "no opinion") plus a human-readabl
 | Crowd votes | Weighted community votes; voters who agree with consensus gain weight | This server |
 | Release velocity | Distinct release dates and tracks in the last 12 months (reissues collapsed, label EP dumps on one day count once) | Deezer |
 | External presence | MusicBrainz entry and how many external links it has (scales smoothly) | MusicBrainz |
-| Credits | Producer/writer credits on the recording | MusicBrainz |
+| Credits | Producer/writer credits on the recording count as human evidence; none listed says nothing | MusicBrainz |
 | Wikipedia | Has a musician/band article, and whether Wikipedia's own description calls the act AI-generated (decisive when it does) | Wikipedia (no key) |
 | Live performances | Concerts recorded for the act | setlist.fm (free key, optional) |
 | YouTube live videos | Third-party live-performance videos | YouTube Data API (free key, optional) |
@@ -64,7 +64,7 @@ pnpm typecheck
 pnpm start              # production-style: build the web app, then serve everything from http://127.0.0.1:8787/
 ```
 
-`pnpm dev` runs the API on port 8787 and Vite on 5173, which proxies `/api` to it. The database is `aid.sqlite` in the repo root; delete it to reset votes and cached lookups.
+`pnpm dev` runs the API on port 8787 and Vite on 5173, which proxies `/api` to it. The database is `packages/server/aid.sqlite`; delete it to reset votes and cached lookups.
 
 ### CLI
 

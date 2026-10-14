@@ -42,6 +42,11 @@ export interface ServiceDeps {
   lookupMb: (artistName: string, isrc?: string) => Promise<MusicBrainzInfo | undefined>;
   /** Wikipedia / setlist.fm / YouTube evidence that the act is real; optional sources need API keys */
   lookupWeb: (artistName: string, mbid?: string) => Promise<WebPresence | undefined>;
+  /**
+   * Which optional API keys are configured, e.g. "sy". It is part of the cache key, so adding or removing a key
+   * re-runs the lookups instead of serving week-old results that were gathered without it.
+   */
+  webKeyTag?: string;
 }
 
 export function defaultDeps(): ServiceDeps {
@@ -52,6 +57,7 @@ export function defaultDeps(): ServiceDeps {
     fetchText: (url) => fetch(url, { headers: { "user-agent": "Mozilla/5.0 (compatible; spotify-ai-detector)" }, signal: AbortSignal.timeout(8000) }),
     loadProfile: (isrc) => profileFromIsrc(isrc, { musicBrainz: null, deezer }),
     loadArtistProfile: (id, name) => profileFromArtistId(id, name, undefined, { musicBrainz: null, deezer }),
+    webKeyTag: `${process.env.SETLISTFM_API_KEY ? "s" : ""}${process.env.YOUTUBE_API_KEY ? "y" : ""}`,
     lookupMb: (name, isrc) => mb.lookup(name, isrc).catch(() => undefined),
     lookupWeb: (name, mbid) =>
       lookupWebPresence(name, { mbid, musicBrainz: mb, setlistFmKey: process.env.SETLISTFM_API_KEY, youtubeKey: process.env.YOUTUBE_API_KEY }).catch(() => undefined),
@@ -95,7 +101,7 @@ export class ScoreService {
   private finish(profile: ArtistProfile, isrc?: string): ServerReport {
     // MusicBrainz is slow (1 req/s), so serve what we have and fill the rest in behind the scenes.
     // The web lookups run after it because setlist.fm needs the MusicBrainz id.
-    const extraKey = `extra:${normalizeName(profile.name)}:${isrc ?? ""}`;
+    const extraKey = `extra:${this.deps.webKeyTag ?? ""}:${normalizeName(profile.name)}:${isrc ?? ""}`;
     const cached = cacheGet<{ info: MusicBrainzInfo | null; web: WebPresence | null }>(this.db, extraKey, EXTRA_TTL);
     let pending = false;
     if (cached) {

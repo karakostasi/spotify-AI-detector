@@ -11,6 +11,8 @@ import {
 } from "./resolve.js";
 
 const PROFILE_TTL = 24 * 3600 * 1000;
+/** Bump when the shape of the cached extra data changes, so old entries are ignored instead of crashing the new code. */
+const EXTRA_SCHEMA = 3;
 const EXTRA_TTL = 7 * 24 * 3600 * 1000;
 /** A lookup where a source failed is retried soon, not trusted for a week. */
 const PARTIAL_TTL = 5 * 60 * 1000;
@@ -112,7 +114,7 @@ export class ScoreService {
   private finish(profile: ArtistProfile, isrc?: string): ServerReport {
     // MusicBrainz is slow (1 req/s), so serve what we have and fill the rest in behind the scenes.
     // The web lookups run after it because setlist.fm needs the MusicBrainz id.
-    const extraKey = `extra:v2:${this.deps.webKeyTag ?? ""}:${normalizeName(profile.name)}:${isrc ?? ""}`;
+    const extraKey = `extra:v${EXTRA_SCHEMA}:${this.deps.webKeyTag ?? ""}:${normalizeName(profile.name)}:${isrc ?? ""}`;
     const entry = cacheEntry<{ info: MusicBrainzInfo | null; web: WebPresence | null; partial?: boolean }>(this.db, extraKey);
     const cached = entry && Date.now() - entry.ts < (entry.value.partial ? PARTIAL_TTL : EXTRA_TTL) ? entry.value : undefined;
     let pending = false;

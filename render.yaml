@@ -1,0 +1,8 @@
+# Render Blueprint: https://render.com/docs/blueprint-spec
+services:
+  - type: web
+    name: ai-music-detector
+    runtime: docker
+    plan: free
+    healthCheckPath: /api/health
+    autoDeploy: true

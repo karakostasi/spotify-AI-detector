@@ -18,6 +18,7 @@ Each signal returns a 0–1 AI-likelihood (or "no opinion") plus a human-readabl
 | External presence | MusicBrainz entry and how many external links it has (scales smoothly) | MusicBrainz |
 | Credits | Producer/writer credits on the recording count as human evidence; none listed says nothing | MusicBrainz |
 | Wikipedia | Has a musician/band article, and whether Wikipedia's own description calls the act AI-generated (decisive when it does) | Wikipedia (no key) |
+| Wikidata | A listed real person (birth date, linked official profiles) is strong human evidence; its description calling the act AI-generated is decisive. Also supplies the MusicBrainz id for artists a name search misses | Wikidata (no key) |
 | Live performances | Concerts recorded for the act | setlist.fm (free key, optional) |
 | YouTube live videos | Third-party live-performance videos | YouTube Data API (free key, optional) |
 | Uniformity | Near-identical track lengths across a catalog | Deezer |
@@ -88,13 +89,14 @@ Spotify's Development Mode limits apply here: the app owner needs Premium and ne
 Optional layers look for evidence that the act exists as people who perform:
 
 - **Wikipedia** (no key). It only flags an act when Wikipedia says so itself: Wikipedia's one-line description calling the act AI-generated is treated as decisive, while an AI mention only in the article's lead, or an act covered only inside an article about AI music, is a strong but non-decisive hint. A missing article says nothing, since many real small artists have none.
+- **Wikidata** (no key). Covers many regional and smaller artists that Wikipedia and MusicBrainz name searches miss. A person listed with a birth date and linked official profiles (website, YouTube, Instagram, Spotify, ...) is strong human evidence, while a plain band entry only counts faintly, since fake acts have social accounts too. Its own description calling an act AI-generated is decisive. Its MusicBrainz id is used to find artists a name search misses.
 - **Live performances** (no key). MusicBrainz recorded events and live albums count as evidence the act plays live. Finding none says nothing, because MusicBrainz coverage is patchy.
 - **setlist.fm** (free key) adds concert history to the live-performance check, and is thorough enough that finding nothing there is a mild warning.
 - **YouTube** (free key) counts third-party live-performance videos.
 
 #### Adding the API keys
 
-Without keys the setlist.fm and YouTube checks are skipped (the page shows "not checked"). To enable them:
+Missing evidence is only a faint lean, never a strong sign of AI: regional and newer artists are patchily covered everywhere. Without keys the setlist.fm and YouTube checks are skipped (the page shows "not checked"). To enable them:
 
 1. **setlist.fm:** sign in at https://www.setlist.fm, then request a key at https://www.setlist.fm/settings/api.
 2. **YouTube:** in https://console.cloud.google.com create a project, enable "YouTube Data API v3", then Credentials → Create credentials → API key. Restrict the key to the YouTube Data API v3. Each lookup uses 100 of the free 10,000 daily quota units, and results are cached for a week.

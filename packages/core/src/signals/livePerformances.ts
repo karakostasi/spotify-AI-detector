@@ -11,8 +11,8 @@ export const livePerformances: Signal = (p) => {
 
   const evidence = (l.setlists ?? 0) + (l.mbEvents ?? 0) + 2 * (l.liveReleases ?? 0);
   if (evidence === 0) {
-    // setlist.fm is thorough enough that nothing there is a mild warning. MusicBrainz alone is too patchy to hold against anyone.
-    if (l.setlists === 0) return { id: "livePerformances", score: 0.55, weight: 0.8, reason: "No concerts recorded on setlist.fm" };
+    // Nothing on setlist.fm is a faint lean at most: regional and smaller acts are poorly covered. MusicBrainz alone is too patchy to hold against anyone.
+    if (l.setlists === 0) return { id: "livePerformances", score: 0.5, weight: 0.5, reason: "No concerts recorded on setlist.fm" };
     return { id: "livePerformances", score: null, weight: 0, reason: "No concert or live-album records found (MusicBrainz coverage is patchy)" };
   }
 

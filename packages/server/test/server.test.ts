@@ -50,6 +50,7 @@ async function setup(app: { rateLimitPerMin?: number } = {}) {
     fetchText: fakeFetch,
     loadProfile: async (isrc) => (isrc === "USXXX2400001" ? structuredClone(prolific) : null),
     loadArtistProfile: async () => structuredClone(prolific),
+    lookupWikidata: async () => undefined,
     lookupMb: async () => {
       mbCalls++;
       return { artistId: "mbid-1", artistFound: false, urlCount: 0, hasBackground: false, recordingFound: false, creditCount: 0 };
@@ -207,6 +208,7 @@ test("adding an API key re-runs lookups instead of serving results gathered with
       fetchText: fakeFetch,
       loadProfile: async () => structuredClone(prolific),
       loadArtistProfile: async () => structuredClone(prolific),
+      lookupWikidata: async () => undefined,
       lookupMb: async () => undefined,
       lookupWeb: async () => {
         web++;

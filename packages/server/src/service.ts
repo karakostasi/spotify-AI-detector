@@ -1,7 +1,7 @@
 import type { DatabaseSync } from "node:sqlite";
 import {
-  scoreArtist, normalizeName, profileFromIsrc, profileFromArtistId, lookupWebPresence, Deezer, MusicBrainz,
-  type ArtistProfile, type MusicBrainzInfo, type ScoreReport, type WebPresence,
+  scoreArtist, normalizeName, profileFromIsrc, profileFromArtistId, lookupWebPresence, Deezer, MusicBrainz, Wikidata,
+  type ArtistProfile, type MusicBrainzInfo, type ScoreReport, type WebPresence, type WikidataInfo,
 } from "@aid/core";
 import { Crowd } from "./crowd.js";
 import { cacheGet, cacheSet } from "./db.js";
@@ -39,7 +39,8 @@ export interface ServiceDeps {
   /** Deezer-backed profile without MusicBrainz data */
   loadProfile: (isrc: string) => Promise<ArtistProfile | null>;
   loadArtistProfile: (artistId: number, name: string) => Promise<ArtistProfile>;
-  lookupMb: (artistName: string, isrc?: string) => Promise<MusicBrainzInfo | undefined>;
+  lookupWikidata: (artistName: string, deezerArtistId?: number) => Promise<WikidataInfo | undefined>;
+  lookupMb: (artistName: string, isrc?: string, mbidHint?: string) => Promise<MusicBrainzInfo | undefined>;
   /** Wikipedia / setlist.fm / YouTube evidence that the act is real; optional sources need API keys */
   lookupWeb: (artistName: string, mbid?: string) => Promise<WebPresence | undefined>;
   /**
@@ -51,6 +52,7 @@ export interface ServiceDeps {
 
 export function defaultDeps(): ServiceDeps {
   const mb = new MusicBrainz();
+  const wikidata = new Wikidata();
   const deezer = new Deezer();
   return {
     deezer,
@@ -58,7 +60,8 @@ export function defaultDeps(): ServiceDeps {
     loadProfile: (isrc) => profileFromIsrc(isrc, { musicBrainz: null, deezer }),
     loadArtistProfile: (id, name) => profileFromArtistId(id, name, undefined, { musicBrainz: null, deezer }),
     webKeyTag: `${process.env.SETLISTFM_API_KEY ? "s" : ""}${process.env.YOUTUBE_API_KEY ? "y" : ""}`,
-    lookupMb: (name, isrc) => mb.lookup(name, isrc).catch(() => undefined),
+    lookupWikidata: (name, deezerId) => wikidata.lookup(name, deezerId).catch(() => undefined),
+    lookupMb: (name, isrc, hint) => mb.lookup(name, isrc, hint).catch(() => undefined),
     lookupWeb: (name, mbid) =>
       lookupWebPresence(name, { mbid, musicBrainz: mb, setlistFmKey: process.env.SETLISTFM_API_KEY, youtubeKey: process.env.YOUTUBE_API_KEY }).catch(() => undefined),
   };
@@ -101,7 +104,7 @@ export class ScoreService {
   private finish(profile: ArtistProfile, isrc?: string): ServerReport {
     // MusicBrainz is slow (1 req/s), so serve what we have and fill the rest in behind the scenes.
     // The web lookups run after it because setlist.fm needs the MusicBrainz id.
-    const extraKey = `extra:${this.deps.webKeyTag ?? ""}:${normalizeName(profile.name)}:${isrc ?? ""}`;
+    const extraKey = `extra:v2:${this.deps.webKeyTag ?? ""}:${normalizeName(profile.name)}:${isrc ?? ""}`;
     const cached = cacheGet<{ info: MusicBrainzInfo | null; web: WebPresence | null }>(this.db, extraKey, EXTRA_TTL);
     let pending = false;
     if (cached) {
@@ -110,10 +113,14 @@ export class ScoreService {
     } else {
       pending = true;
       const name = profile.name;
+      const deezerId = /^deezer:(\d+)$/.exec(profile.key)?.[1];
       void this.once(extraKey, async () => {
-        const info = await this.deps.lookupMb(name, isrc);
+        // Wikidata first: its MusicBrainz id finds artists the name search misses.
+        const wikidata = await this.deps.lookupWikidata(name, deezerId ? Number(deezerId) : undefined);
+        const info = await this.deps.lookupMb(name, isrc, wikidata?.musicBrainzId);
         const web = await this.deps.lookupWeb(name, info?.artistId);
-        cacheSet(this.db, extraKey, { info: info ?? null, web: web ?? null });
+        const combined = web || wikidata ? { ...web, ...(wikidata ? { wikidata } : {}) } : null;
+        cacheSet(this.db, extraKey, { info: info ?? null, web: combined });
       }).catch(() => undefined);
     }
 

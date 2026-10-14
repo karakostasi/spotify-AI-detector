@@ -31,7 +31,7 @@ export class MusicBrainz {
     return { events: ev?.["event-count"] ?? 0, liveReleases: live?.["release-group-count"] ?? 0 };
   }
 
-  async lookup(artistName: string, isrc?: string): Promise<MusicBrainzInfo> {
+  async lookup(artistName: string, isrc?: string, mbidHint?: string): Promise<MusicBrainzInfo> {
     const info: MusicBrainzInfo = { artistFound: false, urlCount: 0, hasBackground: false, recordingFound: false, creditCount: 0 };
 
     if (isrc) {
@@ -44,19 +44,25 @@ export class MusicBrainz {
       }
     }
 
-    const s = await this.get<{ artists?: { id: string; name: string; score: number }[] }>(
-      `/artist?query=${encodeURIComponent(`artist:"${artistName}"`)}&limit=3&fmt=json`,
-    );
-    const target = normalizeName(artistName);
-    const hit = s?.artists?.find((a) => a.score >= 90 && normalizeName(a.name) === target);
-    if (hit) {
-      info.artistFound = true;
-      info.artistId = hit.id;
-      const full = await this.get<{ relations?: unknown[]; "life-span"?: { begin?: string | null }; area?: unknown; "begin-area"?: unknown }>(
-        `/artist/${hit.id}?inc=url-rels&fmt=json`,
+    // An id from Wikidata beats a name search, which misses artists stored under another script or spelling.
+    let artistId = mbidHint;
+    if (!artistId) {
+      const s = await this.get<{ artists?: { id: string; name: string; score: number }[] }>(
+        `/artist?query=${encodeURIComponent(`artist:"${artistName}"`)}&limit=3&fmt=json`,
       );
-      info.urlCount = full?.relations?.length ?? 0;
-      info.hasBackground = Boolean(full?.["life-span"]?.begin || full?.area || full?.["begin-area"]);
+      const target = normalizeName(artistName);
+      artistId = s?.artists?.find((a) => a.score >= 90 && normalizeName(a.name) === target)?.id;
+    }
+    if (artistId) {
+      const full = await this.get<{ relations?: unknown[]; "life-span"?: { begin?: string | null }; area?: unknown; "begin-area"?: unknown }>(
+        `/artist/${artistId}?inc=url-rels&fmt=json`,
+      );
+      if (full) {
+        info.artistFound = true;
+        info.artistId = artistId;
+        info.urlCount = full.relations?.length ?? 0;
+        info.hasBackground = Boolean(full["life-span"]?.begin || full.area || full["begin-area"]);
+      }
     }
     return info;
   }

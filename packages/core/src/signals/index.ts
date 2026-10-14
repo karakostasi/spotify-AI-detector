@@ -7,6 +7,7 @@ import { labelClustering } from "./labelClustering.js";
 import { crowd } from "./crowd.js";
 import { spotifyBadge } from "./spotifyBadge.js";
 import { wikipedia } from "./wikipedia.js";
+import { wikidata } from "./wikidata.js";
 import { livePerformances } from "./livePerformances.js";
 import { youtubeLive } from "./youtubeLive.js";
 
@@ -16,6 +17,7 @@ export const defaultSignals: Signal[] = [
   releaseVelocity,
   externalPresence,
   wikipedia,
+  wikidata,
   livePerformances,
   youtubeLive,
   credits,
@@ -24,5 +26,5 @@ export const defaultSignals: Signal[] = [
 ];
 
 export { baseTitle, uniqueReleases } from "./releaseVelocity.js";
-export { wikipedia, livePerformances, youtubeLive };
+export { wikipedia, wikidata, livePerformances, youtubeLive };
 export { releaseVelocity, uniformity, externalPresence, credits, labelClustering, crowd, spotifyBadge };

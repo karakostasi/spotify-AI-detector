@@ -1,6 +1,7 @@
 import type { ArtistProfile } from "./types.js";
 import { Deezer, usableImage } from "./providers/deezer.js";
 import { MusicBrainz } from "./providers/musicbrainz.js";
+import { Wikidata } from "./providers/wikidata.js";
 
 export interface ProfileOptions {
   deezer?: Deezer;
@@ -30,7 +31,9 @@ async function enrich(artistId: number, name: string, isrc: string | undefined, 
     if (!detailed.has(a.id)) a.trackCount = a.recordType === "single" ? 1 : a.recordType === "ep" ? 4 : 10;
   }
 
-  const musicBrainz = o.musicBrainz === null ? undefined : await (o.musicBrainz ?? new MusicBrainz()).lookup(name, isrc).catch(() => undefined);
+  const wikidata = o.musicBrainz === null ? undefined : await new Wikidata().lookup(name, artistId).catch(() => undefined);
+  const musicBrainz =
+    o.musicBrainz === null ? undefined : await (o.musicBrainz ?? new MusicBrainz()).lookup(name, isrc, wikidata?.musicBrainzId).catch(() => undefined);
 
   return {
     key: `deezer:${artistId}`,
@@ -40,6 +43,7 @@ async function enrich(artistId: number, name: string, isrc: string | undefined, 
     fans: artist?.nb_fan,
     imageUrl: usableImage(artist?.picture_big),
     musicBrainz,
+    web: wikidata ? { wikidata } : undefined,
   };
 }
 

@@ -14,7 +14,7 @@ import {
 
 const PROFILE_TTL = 24 * 3600 * 1000;
 /** Bump when the shape of the cached extra data changes, so old entries are ignored instead of crashing the new code. */
-const EXTRA_SCHEMA = 4;
+const EXTRA_SCHEMA = 5;
 const EXTRA_TTL = 7 * 24 * 3600 * 1000;
 /** A lookup where a source failed is retried soon, not trusted for a week. */
 const PARTIAL_TTL = 5 * 60 * 1000;

@@ -112,6 +112,7 @@ export class Wikidata {
       id: e.id,
       description,
       aiDescribed: looksAiMade(description ?? ""),
+      verified: deezerArtistId !== undefined && values(e, DEEZER_ID).map(String).includes(String(deezerArtistId)),
       isHuman: values(e, "P31").some((v) => (v as { id?: string } | undefined)?.id === HUMAN),
       birthYear: birth ? Number(birth[1]) : undefined,
       linkCount: LINK_PROPS.filter((p) => values(e, p).length > 0).length,

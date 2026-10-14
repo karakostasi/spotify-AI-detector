@@ -44,7 +44,7 @@ export const youtubeLive: Signal = (p) => {
   if (views) parts.push(`${compact(views)} views`);
   if (predates) parts.push(`footage from ${new Date(earliest!).getFullYear()} predates the first release (${new Date(firstRelease!).getFullYear()})`);
 
-  const base = piecewise(channels, [[1, 0.3], [3, 0.15], [6, 0.06], [10, 0.03]]);
+  const base = piecewise(channels, [[1, 0.12], [3, 0.08], [6, 0.05], [10, 0.03]]);
   const strong = predates || fullConcerts > 0 || venues > 0;
   const score = Math.min(base, predates ? 0.04 : 1, fullConcerts ? 0.06 : 1, venues ? 0.08 : 1);
   return { id: "youtubeLive", score, weight: strong ? 2 : 1.2, reason: parts.join("; ") };

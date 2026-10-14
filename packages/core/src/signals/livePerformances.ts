@@ -28,8 +28,10 @@ export const livePerformances: Signal = (p) => {
   ].filter(Boolean);
   return {
     id: "livePerformances",
-    score: piecewise(evidence, [[1, 0.25], [5, 0.08], [15, 0.02]]),
-    weight: 2.5,
+    // Performing live is evidence of a real act, so it scores low from the first concert. How much it counts grows with
+    // the amount: one concert is a lead, a long concert history is close to proof.
+    score: piecewise(evidence, [[1, 0.1], [5, 0.06], [15, 0.02]]),
+    weight: piecewise(evidence, [[1, 1.2], [5, 2.5]]),
     reason: `Performs live: ${parts.join(", ")}`,
   };
 };

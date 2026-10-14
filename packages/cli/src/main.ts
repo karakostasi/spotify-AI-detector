@@ -40,11 +40,11 @@ async function main() {
     return;
   }
   if (!flags.has("--no-web")) {
-    profile.web = await lookupWebPresence(profile.name, {
+    profile.web = { ...profile.web, ...(await lookupWebPresence(profile.name, {
       mbid: profile.musicBrainz?.artistId,
       setlistFmKey: process.env.SETLISTFM_API_KEY,
       youtubeKey: process.env.YOUTUBE_API_KEY,
-    });
+    })) };
   }
   const report = scoreArtist(profile);
   if (flags.has("--json")) console.log(JSON.stringify(report, null, 2));

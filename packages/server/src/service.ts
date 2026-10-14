@@ -1,7 +1,7 @@
 import type { DatabaseSync } from "node:sqlite";
 import {
-  scoreArtist, normalizeName, profileFromIsrc, profileFromArtistId, lookupWebPresence, Deezer, MusicBrainz,
-  type ArtistProfile, type MusicBrainzInfo, type ScoreReport, type WebPresence,
+  scoreArtist, normalizeName, profileFromIsrc, profileFromArtistId, lookupWebPresence, Deezer, MusicBrainz, Wikidata,
+  type ArtistProfile, type MusicBrainzInfo, type ScoreReport, type WebPresence, type WikidataInfo,
 } from "@aid/core";
 import { Crowd } from "./crowd.js";
 import { cacheGet, cacheSet } from "./db.js";
@@ -39,22 +39,31 @@ export interface ServiceDeps {
   /** Deezer-backed profile without MusicBrainz data */
   loadProfile: (isrc: string) => Promise<ArtistProfile | null>;
   loadArtistProfile: (artistId: number, name: string) => Promise<ArtistProfile>;
-  lookupMb: (artistName: string, isrc?: string) => Promise<MusicBrainzInfo | undefined>;
+  lookupWikidata: (artistName: string, deezerArtistId?: number) => Promise<WikidataInfo | undefined>;
+  lookupMb: (artistName: string, isrc?: string, mbidHint?: string) => Promise<MusicBrainzInfo | undefined>;
   /** Wikipedia / setlist.fm / YouTube evidence that the act is real; optional sources need API keys */
   lookupWeb: (artistName: string, mbid?: string) => Promise<WebPresence | undefined>;
+  /**
+   * Which optional API keys are configured, e.g. "sy". It is part of the cache key, so adding or removing a key
+   * re-runs the lookups instead of serving week-old results that were gathered without it.
+   */
+  webKeyTag?: string;
 }
 
 export function defaultDeps(): ServiceDeps {
   const mb = new MusicBrainz();
+  const wikidata = new Wikidata();
   const deezer = new Deezer();
   return {
     deezer,
     fetchText: (url) => fetch(url, { headers: { "user-agent": "Mozilla/5.0 (compatible; spotify-ai-detector)" }, signal: AbortSignal.timeout(8000) }),
     loadProfile: (isrc) => profileFromIsrc(isrc, { musicBrainz: null, deezer }),
     loadArtistProfile: (id, name) => profileFromArtistId(id, name, undefined, { musicBrainz: null, deezer }),
-    lookupMb: (name, isrc) => mb.lookup(name, isrc).catch(() => undefined),
+    webKeyTag: `${process.env.SETLISTFM_API_KEY ? "s" : ""}${process.env.YOUTUBE_API_KEY ? "y" : ""}`,
+    lookupWikidata: (name, deezerId) => wikidata.lookup(name, deezerId).catch(() => undefined),
+    lookupMb: (name, isrc, hint) => mb.lookup(name, isrc, hint).catch(() => undefined),
     lookupWeb: (name, mbid) =>
-      lookupWebPresence(name, { mbid, setlistFmKey: process.env.SETLISTFM_API_KEY, youtubeKey: process.env.YOUTUBE_API_KEY }).catch(() => undefined),
+      lookupWebPresence(name, { mbid, musicBrainz: mb, setlistFmKey: process.env.SETLISTFM_API_KEY, youtubeKey: process.env.YOUTUBE_API_KEY }).catch(() => undefined),
   };
 }
 
@@ -95,7 +104,7 @@ export class ScoreService {
   private finish(profile: ArtistProfile, isrc?: string): ServerReport {
     // MusicBrainz is slow (1 req/s), so serve what we have and fill the rest in behind the scenes.
     // The web lookups run after it because setlist.fm needs the MusicBrainz id.
-    const extraKey = `extra:${normalizeName(profile.name)}:${isrc ?? ""}`;
+    const extraKey = `extra:v2:${this.deps.webKeyTag ?? ""}:${normalizeName(profile.name)}:${isrc ?? ""}`;
     const cached = cacheGet<{ info: MusicBrainzInfo | null; web: WebPresence | null }>(this.db, extraKey, EXTRA_TTL);
     let pending = false;
     if (cached) {
@@ -104,10 +113,14 @@ export class ScoreService {
     } else {
       pending = true;
       const name = profile.name;
+      const deezerId = /^deezer:(\d+)$/.exec(profile.key)?.[1];
       void this.once(extraKey, async () => {
-        const info = await this.deps.lookupMb(name, isrc);
+        // Wikidata first: its MusicBrainz id finds artists the name search misses.
+        const wikidata = await this.deps.lookupWikidata(name, deezerId ? Number(deezerId) : undefined);
+        const info = await this.deps.lookupMb(name, isrc, wikidata?.musicBrainzId);
         const web = await this.deps.lookupWeb(name, info?.artistId);
-        cacheSet(this.db, extraKey, { info: info ?? null, web: web ?? null });
+        const combined = web || wikidata ? { ...web, ...(wikidata ? { wikidata } : {}) } : null;
+        cacheSet(this.db, extraKey, { info: info ?? null, web: combined });
       }).catch(() => undefined);
     }
 

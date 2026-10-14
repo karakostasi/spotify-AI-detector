@@ -8,7 +8,8 @@ export const externalPresence: Signal = (p) => {
     return { id: "externalPresence", score: null, weight: 0, reason: "MusicBrainz lookup unavailable" };
   }
   if (!mb.artistFound) {
-    return { id: "externalPresence", score: 0.65, weight: 1.2, reason: "No MusicBrainz entry for this artist" };
+    // MusicBrainz misses many real regional and newer artists, so this is only a faint lean.
+    return { id: "externalPresence", score: 0.5, weight: 0.5, reason: "No MusicBrainz entry found for this artist" };
   }
   // Scales smoothly with the number of linked sites (official site, socials, Discogs, ...) instead of a hard cutoff.
   const byLinks = piecewise(mb.urlCount, [[0, 0.5], [1, 0.3], [3, 0.12], [6, 0.04]]);

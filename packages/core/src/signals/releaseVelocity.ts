@@ -37,7 +37,9 @@ export const releaseVelocity: Signal = (p, now) => {
   const tracks = recent.reduce((n, a) => n + a.trackCount, 0);
   const byEvents = piecewise(events, [[4, 0.05], [10, 0.35], [20, 0.7], [40, 0.95]]);
   const byTracks = piecewise(tracks, [[40, 0.05], [100, 0.4], [200, 0.8], [400, 0.95]]);
-  const score = Math.max(byEvents, 0.7 * byTracks);
+  // Track volume only counts when releases keep coming; one big back-catalog drop is not a generator pattern.
+  const steady = Math.min(1, events / 10);
+  const score = Math.max(byEvents, 0.7 * byTracks * steady);
   return {
     id: "releaseVelocity",
     score,

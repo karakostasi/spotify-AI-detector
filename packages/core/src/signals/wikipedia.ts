@@ -20,5 +20,5 @@ export const wikipedia: Signal = (p) => {
       reason: w.ownArticle ? `Wikipedia's article says this act is AI-generated` : `Wikipedia covers this act only inside an article about AI music${quote}`,
     };
   }
-  return { id: "wikipedia", score: 0.1, weight: 1, reason: `Has a Wikipedia article${w.description ? ` ("${w.description}")` : ""}` };
+  return { id: "wikipedia", score: 0.03, weight: 1.5, reason: `Has a Wikipedia article${w.description ? ` ("${w.description}")` : ""}` };
 };

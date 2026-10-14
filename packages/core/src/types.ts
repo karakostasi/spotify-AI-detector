@@ -41,11 +41,30 @@ export interface WikipediaInfo {
   aiDescribed: boolean;
 }
 
+export interface WikidataInfo {
+  found: boolean;
+  id?: string;
+  description?: string;
+  /** Wikidata's one-line description calls the act AI-generated */
+  aiDescribed: boolean;
+  /** Listed as a human (instance of: human) */
+  isHuman: boolean;
+  birthYear?: number;
+  /** How many official profiles are linked (website, YouTube, Instagram, Spotify, Apple Music, ...) */
+  linkCount: number;
+  /** The MusicBrainz artist id Wikidata links to, which finds artists a name search misses */
+  musicBrainzId?: string;
+}
+
 /** Evidence from the wider web that the act exists as real people playing real shows. */
 export interface WebPresence {
   wikipedia?: WikipediaInfo;
-  /** setlist.fm: recorded concerts */
-  live?: { setlists: number };
+  wikidata?: WikidataInfo;
+  /**
+   * Evidence the act performs live. `setlists` (setlist.fm) is only present when that key is configured;
+   * `mbEvents` and `liveReleases` come from MusicBrainz and need no key.
+   */
+  live?: { setlists?: number; mbEvents?: number; liveReleases?: number };
   /** YouTube: third-party live-performance videos found */
   youtube?: { liveVideos: number };
 }

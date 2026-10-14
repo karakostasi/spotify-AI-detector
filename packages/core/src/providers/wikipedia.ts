@@ -3,7 +3,7 @@ import { getJson, type Fetch } from "./http.js";
 import { normalizeName } from "../util.js";
 
 const REST = "https://en.wikipedia.org/api/rest_v1/page/summary";
-const MUSICAL = /\b(singers?|bands?|musicians?|rappers?|duos?|groups?|composers?|producers?|djs?|songwriters?|vocalists?|guitarists?|trios?|quartets?|music(?:al)? (?:project|act|artist|group)|recording artists?)\b/i;
+export const MUSICAL = /\b(singers?|bands?|musicians?|rappers?|duos?|groups?|composers?|producers?|djs?|songwriters?|vocalists?|guitarists?|trios?|quartets?|music(?:al)? (?:project|act|artist|group)|recording artists?)\b/i;
 
 /**
  * The lead section calls the act AI-made. Deliberately narrow: "virtual band" (e.g. Gorillaz) is
@@ -15,6 +15,7 @@ const AI_MADE = new RegExp(
     "\\bartificial(?:ly)?[- ](?:intelligence|generated)\\b",
     "\\bgenerated (?:entirely |completely )?(?:by|using|with) (?:AI|artificial intelligence|Suno|Udio)\\b",
     "\\bAI (?:band|artist|musician|singer|persona|project|music project|act)\\b",
+    "\\bAI (?:musical|music|virtual|fictional) (?:artist|act|band|group|duo|singer|musician|project|vocalist)\\b",
     "\\b(?:made|created|produced) (?:entirely |completely )?(?:by|with|using) (?:AI|Suno|Udio)\\b",
   ].join("|"),
   "i",

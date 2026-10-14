@@ -27,8 +27,11 @@ export interface TrackHit {
  * Deezer's artist photo, or undefined when the artist has none. Artists without a photo get a placeholder URL with an
  * empty hash (".../artist//500x500..."), and we only trust Deezer's own image CDN.
  */
+/** Deezer's generic silhouette, which it serves for artists with no photo, and the MD5 of an empty file. */
+const PLACEHOLDER_HASHES = ["9285442897dbcc4a8eb9cf52d6d4073d", "d41d8cd98f00b204e9800998ecf8427e"];
+
 export function usableImage(url: string | undefined): string | undefined {
-  if (!url || url.includes("/artist//")) return undefined;
+  if (!url || url.includes("/artist//") || PLACEHOLDER_HASHES.some((h) => url.includes(`/${h}/`))) return undefined;
   return /^https:\/\/[a-z0-9-]+\.dzcdn\.net\//i.test(url) ? url : undefined;
 }
 
@@ -52,6 +55,12 @@ export class Deezer {
   /** Search results omit ISRC; fetch the full track with `track()` once chosen. */
   async searchTracks(query: string, limit = 10): Promise<TrackHit[]> {
     const r = await this.get<{ data: TrackHit[] }>(`/search?q=${encodeURIComponent(query)}&limit=${limit}`);
+    return r?.data ?? [];
+  }
+
+  /** Artists matching a name, for choosing between people who share it. */
+  async searchArtists(name: string, limit = 10): Promise<{ id: number; name: string; nb_fan: number; nb_album: number }[]> {
+    const r = await this.get<{ data: { id: number; name: string; nb_fan: number; nb_album: number }[] }>(`/search/artist?q=${encodeURIComponent(name)}&limit=${limit}`);
     return r?.data ?? [];
   }
 

@@ -12,6 +12,14 @@ export interface Match {
   similarity: number;
 }
 
+export interface ArtistChoice {
+  deezerArtistId: number;
+  name: string;
+  description?: string;
+  fans?: number;
+  albums?: number;
+}
+
 export interface CheckResponse {
   input?: { source: "spotify" | "youtube" | "text"; title?: string; artist: string };
   track?: { title: string; artist: string; album: string; isrc?: string };
@@ -19,6 +27,10 @@ export interface CheckResponse {
   alternatives: Match[];
   report: Report | null;
   error?: string;
+  artistChoices?: ArtistChoice[];
+  searchedAs?: string;
+  usedAi?: boolean;
+  unverifiedClues?: boolean;
 }
 
 export interface TrackRef {
@@ -74,6 +86,10 @@ export class DetectorClient {
 
   async checkTrack(deezerTrackId: number): Promise<CheckResponse> {
     return this.checkResult(await fetch(`${this.baseUrl}/api/check?deezerTrack=${deezerTrackId}`));
+  }
+
+  async checkArtist(deezerArtistId: number): Promise<CheckResponse> {
+    return this.checkResult(await fetch(`${this.baseUrl}/api/check?deezerArtist=${deezerArtistId}`));
   }
 
   private async checkResult(res: Response): Promise<CheckResponse> {

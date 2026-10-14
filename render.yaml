@@ -12,3 +12,9 @@ services:
         sync: false
       - key: YOUTUBE_API_KEY
         sync: false
+      - key: ANTHROPIC_API_KEY
+        sync: false
+      - key: AI_MODEL
+        sync: false
+      - key: AI_DAILY_LIMIT
+        sync: false

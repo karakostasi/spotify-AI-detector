@@ -9,4 +9,7 @@ export { Wikipedia, looksAiMade } from "./providers/wikipedia.js";
 export { SetlistFm } from "./providers/setlistfm.js";
 export { YouTube } from "./providers/youtube.js";
 export { lookupWebPresence, withYouTubeIfUncertain, type WebLookupOptions } from "./providers/web.js";
-export { Wikidata } from "./providers/wikidata.js";
+export { Wikidata, type WikidataCandidate } from "./providers/wikidata.js";
+export { greekToLatin, hasGreek } from "./query/greek.js";
+export { interpretText, cluesFromWords, nameSimilarity, type Interpretation } from "./query/interpret.js";
+export { rankCandidates, type Candidate, type Ranked } from "./query/rank.js";

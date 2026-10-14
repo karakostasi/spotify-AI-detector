@@ -125,6 +125,11 @@ export function createApp(svc: ScoreService, opts: AppOptions = {}): Server {
           if (!/^\d{1,12}$/.test(track)) throw new HttpError(400, "Invalid deezerTrack");
           return send(res, 200, await svc.checkDeezerTrack(Number(track)));
         }
+        const artist = url.searchParams.get("deezerArtist");
+        if (artist !== null) {
+          if (!/^\d{1,12}$/.test(artist)) throw new HttpError(400, "Invalid deezerArtist");
+          return send(res, 200, await svc.checkDeezerArtist(Number(artist)));
+        }
         const q = (url.searchParams.get("q") ?? "").slice(0, 300);
         if (!q.trim()) throw new HttpError(400, "q required (a Spotify/YouTube link or artist name)");
         return send(res, 200, await svc.check(q));

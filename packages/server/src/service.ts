@@ -1,10 +1,12 @@
 import type { DatabaseSync } from "node:sqlite";
 import {
-  scoreArtist, normalizeName, profileFromIsrc, profileFromArtistId, lookupWebPresence, needsYouTube, YouTube, Deezer, MusicBrainz, Wikidata,
+  scoreArtist, normalizeName, profileFromIsrc, profileFromArtistId, lookupWebPresence, needsYouTube, YouTube, Deezer, MusicBrainz, Wikidata, normalizeName as foldName,
   type ArtistProfile, type MusicBrainzInfo, type ScoreReport, type WebPresence, type WikidataInfo, type YouTubeVideo,
 } from "@aid/core";
 import { Crowd } from "./crowd.js";
 import { cacheEntry, cacheGet, cacheSet } from "./db.js";
+import { resolveArtist, type ArtistChoice, type LlmHints, type ResolverDeps } from "./artistResolver.js";
+import { createInterpreter } from "./ai.js";
 import {
   CONFIDENT, PLAUSIBLE, findMatches, hintFromSpotify, hintFromText, hintFromYouTube, parseInput,
   type Hint, type Match, type Source,
@@ -16,6 +18,9 @@ const EXTRA_SCHEMA = 3;
 const EXTRA_TTL = 7 * 24 * 3600 * 1000;
 /** A lookup where a source failed is retried soon, not trusted for a week. */
 const PARTIAL_TTL = 5 * 60 * 1000;
+const AI_TTL = 30 * 24 * 3600 * 1000;
+/** A failed or empty AI answer is retried soon rather than remembered */
+const AI_MISS_TTL = 10 * 60 * 1000;
 const RETRY_DELAY_MS = 2000;
 
 export interface ServerReport extends ScoreReport {
@@ -34,17 +39,31 @@ export interface CheckResult {
   alternatives: Match[];
   report: ServerReport | null;
   error?: string;
+  /** Other artists that could be meant, when a name is shared or the pick is uncertain */
+  artistChoices?: ArtistChoice[];
+  /** What was actually searched, e.g. "Justin Johnston · guitarist" */
+  searchedAs?: string;
+  /** The AI layer helped interpret the query */
+  usedAi?: boolean;
+  /** The query carried clues (instrument, nationality...) that no source could confirm */
+  unverifiedClues?: boolean;
 }
 
 type FetchText = (url: string) => Promise<{ ok: boolean; text: () => Promise<string>; json: () => Promise<any> }>;
 
 export interface ServiceDeps {
-  deezer: Pick<Deezer, "track" | "searchTracks" | "searchArtist">;
+  deezer: Pick<Deezer, "track" | "searchTracks" | "searchArtist" | "searchArtists" | "artist">;
   fetchText: FetchText;
   /** Deezer-backed profile without MusicBrainz data */
   loadProfile: (isrc: string) => Promise<ArtistProfile | null>;
   loadArtistProfile: (artistId: number, name: string) => Promise<ArtistProfile>;
   lookupWikidata: (artistName: string, deezerArtistId?: number) => Promise<WikidataInfo | undefined>;
+  /** Musicians matching names on Wikidata, with their Deezer/MusicBrainz ids (used to resolve ambiguous or non-Latin queries) */
+  wikidataCandidates?: ResolverDeps["wikidataCandidates"];
+  /** Deezer artist id linked from a MusicBrainz artist */
+  mbDeezerId?: ResolverDeps["mbDeezerId"];
+  /** AI layer: untangles a query the plain search could not resolve. Absent when no ANTHROPIC_API_KEY is set. */
+  interpretQuery?: (text: string) => Promise<LlmHints | undefined>;
   lookupMb: (artistName: string, isrc?: string, mbidHint?: string) => Promise<MusicBrainzInfo | undefined>;
   /** Wikipedia / setlist.fm / YouTube evidence that the act is real; optional sources need API keys */
   lookupWeb: (artistName: string, mbid?: string) => Promise<WebPresence | undefined>;
@@ -70,6 +89,9 @@ export function defaultDeps(): ServiceDeps {
     loadArtistProfile: (id, name) => profileFromArtistId(id, name, undefined, { musicBrainz: null, deezer }),
     webKeyTag: `${process.env.SETLISTFM_API_KEY ? "s" : ""}${process.env.YOUTUBE_API_KEY ? "y" : ""}`,
     lookupWikidata: (name, deezerId) => wikidata.lookup(name, deezerId).catch(() => undefined),
+    wikidataCandidates: (names, languages) => wikidata.candidates(names, languages),
+    mbDeezerId: (mbid) => mb.deezerArtistId(mbid),
+    interpretQuery: process.env.ANTHROPIC_API_KEY ? createInterpreter() : undefined,
     lookupMb: (name, isrc, hint) => mb.lookup(name, isrc, hint).catch(() => undefined),
     lookupWeb: (name, mbid) =>
       lookupWebPresence(name, { mbid, musicBrainz: mb, setlistFmKey: process.env.SETLISTFM_API_KEY }).catch(() => undefined),
@@ -172,6 +194,32 @@ export class ScoreService {
     return { ...r, confident: true, alternatives: [], error: r.report ? undefined : "Track not found" };
   }
 
+  /** The user picked one of the "which artist?" choices. */
+  async checkDeezerArtist(id: number): Promise<CheckResult> {
+    const a = await this.deps.deezer.artist(id);
+    if (!a) return { confident: true, alternatives: [], report: null, error: "Artist not found" };
+    return { confident: true, alternatives: [], report: await this.scoreArtistId(a.id, a.name), artistChoices: [] };
+  }
+
+  private resolverDeps(): ResolverDeps {
+    return {
+      deezer: this.deps.deezer,
+      wikidataCandidates: this.deps.wikidataCandidates ?? (async () => []),
+      mbDeezerId: this.deps.mbDeezerId ?? (async () => undefined),
+      interpret: this.deps.interpretQuery ? (t) => this.interpretCached(t) : undefined,
+    };
+  }
+
+  /** The AI layer's answers are cached for a month, so a repeated query never costs twice. */
+  private async interpretCached(text: string): Promise<LlmHints | undefined> {
+    const key = `ai:v1:${foldName(text)}`;
+    const entry = cacheEntry<{ hints: LlmHints | null }>(this.db, key);
+    if (entry && Date.now() - entry.ts < (entry.value.hints ? AI_TTL : AI_MISS_TTL)) return entry.value.hints ?? undefined;
+    const hints = await this.deps.interpretQuery!(text);
+    cacheSet(this.db, key, { hints: hints ?? null });
+    return hints;
+  }
+
   /** Link or free text -> best matching track -> score. */
   async check(raw: string): Promise<CheckResult> {
     const fail = (error: string): CheckResult => ({ confident: false, alternatives: [], report: null, error });
@@ -192,9 +240,15 @@ export class ScoreService {
     const input = { source: hint.source, title: hint.title, artist: hint.artist };
 
     if (!hint.title) {
-      const a = await this.deps.deezer.searchArtist(hint.artist);
-      if (!a) return { ...fail(`No artist named "${hint.artist}" found.`), input };
-      return { input, confident: true, alternatives: [], report: await this.scoreArtistId(a.id, a.name) };
+      const r = await resolveArtist(hint.artist, this.resolverDeps());
+      if (!r.artist) {
+        return { ...fail(`No artist matching "${hint.artist}" found.`), input, searchedAs: r.searchedAs, usedAi: r.usedAi };
+      }
+      const report = await this.scoreArtistId(r.artist.deezerArtistId, r.artist.name);
+      return {
+        input, confident: true, alternatives: [], report,
+        artistChoices: r.choices, searchedAs: r.searchedAs, usedAi: r.usedAi, unverifiedClues: r.unverifiedClues,
+      };
     }
 
     const matches = await findMatches(this.deps.deezer as Deezer, hint);

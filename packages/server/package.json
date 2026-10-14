@@ -9,6 +9,8 @@
     "dev": "tsx watch --env-file-if-exists=../../.env src/main.ts"
   },
   "dependencies": {
-    "@aid/core": "workspace:*"
+    "@aid/core": "workspace:*",
+    "@anthropic-ai/sdk": "^0.133.0",
+    "zod": "^4.6.7"
   }
 }

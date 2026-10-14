@@ -25,6 +25,8 @@ const fakeDeezer = {
   track: async (id: number) => (id === 7 ? fakeTrack : null),
   searchTracks: async () => [fakeTrack, { ...fakeTrack, id: 8, title: "Other Song", isrc: "" }],
   searchArtist: async (n: string) => (n === "Gen Bot" ? { id: 1, name: "Gen Bot" } : null),
+  searchArtists: async (n: string) => (n === "Gen Bot" ? [{ id: 1, name: "Gen Bot", nb_fan: 500, nb_album: 12 }] : []),
+  artist: async (id: number) => (id === 1 ? { id: 1, name: "Gen Bot", nb_fan: 500 } : null),
 };
 const pages: Record<string, { ok: boolean; body: string }> = {
   "https://open.spotify.com/track/4uLU6hMCjMI75M1A2tKUQC": {
@@ -352,4 +354,59 @@ test("cached data in an outdated shape never crashes a check", async () => {
   const r = (await svc.scoreIsrc("USXXX2400001"))!;
   assert.ok(r.score !== null, "still produces a score");
   assert.equal(r.signals.find((x) => x.id === "youtubeLive")!.score, null);
+});
+
+test("the AI layer rescues an unreadable query, is cached so a repeat costs nothing, and is skipped when the plain search works", async () => {
+  let asked = 0;
+  const svc = new ScoreService(openDb(), {
+    deezer: fakeDeezer as any,
+    fetchText: fakeFetch,
+    loadProfile: async () => structuredClone(prolific),
+    loadArtistProfile: async () => structuredClone(prolific),
+    lookupWikidata: async () => undefined,
+    lookupMb: async () => undefined,
+    lookupWeb: async () => ({}),
+    retryDelayMs: 0,
+    interpretQuery: async () => {
+      asked++;
+      return { artist: "Gen Bot", qualifiers: [], spellings: [] };
+    },
+  });
+  const server = createApp(svc);
+  await new Promise<void>((r) => server.listen(0, "127.0.0.1", r));
+  const base = `http://127.0.0.1:${(server.address() as AddressInfo).port}`;
+  try {
+    const q = encodeURIComponent("that robot band gen bot please");
+    const first = await json(await fetch(`${base}/api/check?q=${q}`));
+    assert.equal(first.report.artistName, "Gen Bot");
+    assert.equal(first.usedAi, true);
+    assert.equal(asked, 1);
+
+    const again = await json(await fetch(`${base}/api/check?q=${q}`));
+    assert.equal(again.usedAi, true, "still reported as AI-assisted");
+    assert.equal(asked, 1, "the repeat came from the cache, not the model");
+
+    const plain = await json(await fetch(`${base}/api/check?q=${encodeURIComponent("Gen Bot")}`));
+    assert.equal(plain.usedAi, false);
+    assert.equal(asked, 1, "a clean name never reaches the AI layer");
+  } finally {
+    server.close();
+  }
+});
+
+test("without an AI layer, an unreadable query is just not found; and choosing an artist from the list works", async () => {
+  const s = await setup();
+  try {
+    const none = await json(await fetch(`${s.base}/api/check?q=${encodeURIComponent("zzzz qqqq unknown")}`));
+    assert.match(none.error, /No artist matching/);
+    assert.equal(none.report, null);
+
+    const picked = await json(await fetch(`${s.base}/api/check?deezerArtist=1`));
+    assert.equal(picked.report.artistName, "Gen Bot");
+    assert.deepEqual(picked.artistChoices, []);
+    assert.equal((await json(await fetch(`${s.base}/api/check?deezerArtist=999`))).error, "Artist not found");
+    assert.equal((await fetch(`${s.base}/api/check?deezerArtist=abc`)).status, 400);
+  } finally {
+    s.close();
+  }
 });

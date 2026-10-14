@@ -105,6 +105,20 @@ Missing evidence is only a faint lean, never a strong sign of AI: regional and n
 
 Google search is deliberately not used: its Custom Search API is closed to new customers and scraping results breaks Google's terms.
 
+### Searching by name, spelling and clues
+
+Typing a name is not always enough: several artists share one, and Greek names have many Latin spellings. The checker resolves a typed name in layers:
+
+1. **As typed.** The whole query is tried first, so names ending in a genre or role word (Daft Punk, Kid Rock) stay intact.
+2. **Clues.** Words like "guitar", "jazz" or "Greek" are peeled off the query and matched against Wikidata descriptions ("Australian classical guitarist"). "john williams guitar" lands on the guitarist, found through Wikidata, then MusicBrainz's link to his Deezer page.
+3. **Greek.** Greek script is searched on Wikidata in Greek and transliterated, so "Γιάννης Χαρούλης" finds Giannis Haroulis.
+4. **Exact name beats a lookalike.** "Justin Johnston" is never silently swapped for "Justin Johnson" because he has more fans. Near matches are offered as one-click alternatives, and a clue that no source can confirm is called out, not guessed.
+5. **AI layer (optional, last resort).** Only when the plain search finds nothing, or only a page that looks like a stray duplicate. Claude splits the query into the artist name, clues and alternate spellings, which then go through the same data lookups. It never decides who someone is: a model cannot know which "Justin Johnston" exists, so its output is only used as search strings. Requests are capped per day, answers are cached for a month, the query is sent as quoted data, and any failure falls back to the plain result.
+
+To enable the AI layer set `ANTHROPIC_API_KEY` (see `.env.example`). The default model is `claude-opus-5-5`; set `AI_MODEL=claude-haiku-5-5` to make each call roughly 40x cheaper, which is plenty for this task. Without a key everything above except step 5 still works.
+
+When there is too little evidence for a verdict the page says "Not enough evidence" and shows no score, rather than a confident-looking "likely human".
+
 ### Shared blocklist
 
 `GET /api/blocklist` returns artists the crowd agrees are AI (JSON, or `?format=txt` for `key<TAB>name` lines).
@@ -131,6 +145,7 @@ MusicBrainz allows ~1 request/second, so those lookups run in the background. Th
 - **Metadata alone misses some AI acts.** The Velvet Sundown, for example, scores as human (3 releases, documented on MusicBrainz). Catching cases like that is the job of crowd votes, Spotify's badge and, later, audio analysis. Treat the result as an estimate, not proof; the page says so.
 - **Human false positives are possible.** Labels that repackage back catalogs, or prolific real artists, can look like AI release patterns. Release velocity is only one weighted signal and reissues are collapsed, but expect some misses in both directions.
 - **YouTube matching is fuzzy.** Covers, remixes, fan uploads and live videos may match the wrong track or nothing. The page flags low-confidence matches and offers alternatives.
+- **A name shared by several unknown artists cannot be settled from free data.** If no source describes them (Wikidata and MusicBrainz often have nothing for small artists), the page cannot tell which "Justin Johnston" plays guitar. It says so and lists the alternatives.
 - **Only tracks on Deezer can be scored.**
 - **Wikipedia only helps for notable acts.** A new or obscure AI act has no article, so it gets no signal either way. The setlist.fm and YouTube layers are untested against the live APIs because they need keys.
 - **Spotify AI Persona badge:** the signal exists but nothing feeds it yet. It is unclear whether Spotify exposes the label through any API.

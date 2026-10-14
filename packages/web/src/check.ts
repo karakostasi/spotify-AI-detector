@@ -98,6 +98,20 @@ function render(c: CheckResponse, q: string, settled: boolean) {
   if (c.error && !r) parts.push(`<section class="err">${esc(c.error)}</section>`);
   if (c.input && !c.track && !r) parts.push(`<p class="muted small">Looked for: ${esc(c.input.artist)}${c.input.title ? " – " + esc(c.input.title) : ""} (from ${SOURCE[c.input.source]})</p>`);
 
+  const choices = c.artistChoices ?? [];
+  const clueText = c.searchedAs?.split(" · ").slice(1).join(", ");
+  if (c.searchedAs && (c.usedAi || c.unverifiedClues || choices.length)) {
+    parts.push(`<p class="muted small">Searched for: <b>${esc(c.searchedAs)}</b>${c.usedAi ? " · query interpreted with AI" : ""}</p>`);
+  }
+  if (c.unverifiedClues && clueText) {
+    parts.push(`<p class="muted small">We couldn't confirm "${esc(clueText)}" for any artist with this name, so this is the closest name match.</p>`);
+  }
+  if (choices.length) {
+    parts.push(`<section><p>${r ? "Not the right artist? Others with a similar name:" : "Did you mean one of these artists?"}</p>${choices
+      .map((a) => `<button class="secondary pick" data-artist="${a.deezerArtistId}">${esc(a.name)}${a.description ? ` <span class="muted">· ${esc(a.description)}</span>` : a.fans !== undefined ? ` <span class="muted">· ${a.fans.toLocaleString()} fans</span>` : ""}</button>`)
+      .join(" ")}</section>`);
+  }
+
   const alternatives = c.alternatives ?? [];
   if (alternatives.length) {
     parts.push(`<section><p>${r ? "Not the right track?" : "Did you mean one of these?"}</p>${alternatives
@@ -120,7 +134,7 @@ function render(c: CheckResponse, q: string, settled: boolean) {
         ${
           r.pending && !settled
             ? `<p><span class="badge big unknown">Gathering more data…</span></p>${progressBar("Checking more sources")}<p class="muted">Preliminary: ${pct === null ? "no score yet" : `${pct}% AI score`}. Checking more sources, this updates automatically.</p>`
-            : `<p><span class="badge big ${r.verdict}">${LABEL[r.verdict]}</span> ${pct === null ? "" : `<span class="pct">${pct}% AI score</span>`}</p><p>${explain(r)}</p>${
+            : `<p><span class="badge big ${r.verdict}">${LABEL[r.verdict]}</span> ${pct === null || r.verdict === "unknown" ? "" : `<span class="pct">${pct}% AI score</span>`}</p><p>${explain(r)}</p>${
                 r.pending ? `<p class="muted small">Some sources hadn't answered yet, so this is the best estimate so far. Check again in a minute for a sharper score.</p>` : ""
               }`
         }
@@ -141,6 +155,9 @@ function render(c: CheckResponse, q: string, settled: boolean) {
   result.querySelectorAll<HTMLButtonElement>("button").forEach((x) => (x.disabled = busy));
   document.getElementById("again")!.onclick = reset;
 
+  result.querySelectorAll<HTMLButtonElement>("button.pick").forEach((b) => {
+    b.onclick = () => void check(q, () => client.checkArtist(Number(b.dataset.artist)));
+  });
   result.querySelectorAll<HTMLButtonElement>("button.alt").forEach((b) => {
     b.onclick = () => void check(q, () => client.checkTrack(Number(b.dataset.id)));
   });

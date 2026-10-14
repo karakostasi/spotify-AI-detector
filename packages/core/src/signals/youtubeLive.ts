@@ -1,0 +1,16 @@
+import type { Signal } from "../types.js";
+import { piecewise } from "../util.js";
+
+export const youtubeLive: Signal = (p) => {
+  const y = p.web?.youtube;
+  if (!y) return { id: "youtubeLive", score: null, weight: 0, reason: "YouTube live videos not checked" };
+  if (y.liveVideos === 0) {
+    return { id: "youtubeLive", score: 0.6, weight: 0.8, reason: "No live-performance videos found on YouTube" };
+  }
+  return {
+    id: "youtubeLive",
+    score: piecewise(y.liveVideos, [[1, 0.35], [4, 0.12], [8, 0.05]]),
+    weight: 1.2,
+    reason: `${y.liveVideos} live-performance video${y.liveVideos === 1 ? "" : "s"} from different channels on YouTube`,
+  };
+};

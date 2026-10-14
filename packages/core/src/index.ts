@@ -5,3 +5,7 @@ export * from "./signals/index.js";
 export { Deezer, type DeezerTrack, type TrackHit } from "./providers/deezer.js";
 export { MusicBrainz } from "./providers/musicbrainz.js";
 export { profileFromIsrc, profileFromArtistName, profileFromArtistId, type ProfileOptions } from "./profile.js";
+export { Wikipedia, looksAiMade } from "./providers/wikipedia.js";
+export { SetlistFm } from "./providers/setlistfm.js";
+export { YouTube } from "./providers/youtube.js";
+export { lookupWebPresence, type WebLookupOptions } from "./providers/web.js";

@@ -43,6 +43,7 @@ const fakeFetch = async (url: string) => {
 
 async function setup(app: { rateLimitPerMin?: number } = {}) {
   let mbCalls = 0;
+  const webCalls: (string | undefined)[] = [];
   const svc = new ScoreService(openDb(), {
     deezer: fakeDeezer as any,
     fetchText: fakeFetch,
@@ -50,13 +51,17 @@ async function setup(app: { rateLimitPerMin?: number } = {}) {
     loadArtistProfile: async () => structuredClone(prolific),
     lookupMb: async () => {
       mbCalls++;
-      return { artistFound: false, urlCount: 0, hasBackground: false, recordingFound: false, creditCount: 0 };
+      return { artistId: "mbid-1", artistFound: false, urlCount: 0, hasBackground: false, recordingFound: false, creditCount: 0 };
+    },
+    lookupWeb: async (_name, mbid) => {
+      webCalls.push(mbid);
+      return { wikipedia: { found: true, title: "Gen Bot", description: "AI-generated pop project", ownArticle: true, aiMentioned: true, aiDescribed: true } };
     },
   });
   const server = createApp(svc, app);
   await new Promise<void>((r) => server.listen(0, "127.0.0.1", r));
   const base = `http://127.0.0.1:${(server.address() as AddressInfo).port}`;
-  return { svc, base, mbCalls: () => mbCalls, close: () => server.close() };
+  return { svc, base, mbCalls: () => mbCalls, webCalls, close: () => server.close() };
 }
 
 const json = (r: Response) => r.json() as Promise<any>;
@@ -77,6 +82,10 @@ test("score: validates isrc, 404s unknown, scores known, fills MusicBrainz in th
     assert.equal(second.pending, false);
     assert.ok(second.signals.some((x: any) => x.id === "externalPresence" && x.score !== null));
     assert.equal(s.mbCalls(), 1);
+    // web lookup runs after MusicBrainz and receives its artist id, and its evidence reaches the score
+    assert.deepEqual(s.webCalls, ["mbid-1"]);
+    const wiki = second.signals.find((x: any) => x.id === "wikipedia");
+    assert.ok(wiki && wiki.score >= 0.9, "wikipedia AI mention should score high");
   } finally {
     s.close();
   }

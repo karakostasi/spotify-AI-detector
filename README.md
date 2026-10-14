@@ -15,8 +15,11 @@ Each signal returns a 0–1 AI-likelihood (or "no opinion") plus a human-readabl
 | Spotify AI Persona badge | Decisive when present | Spotify (not wired up yet, see Limitations) |
 | Crowd votes | Weighted community votes; voters who agree with consensus gain weight | This server |
 | Release velocity | Distinct release dates and tracks in the last 12 months (reissues collapsed, label EP dumps on one day count once) | Deezer |
-| External presence | MusicBrainz entry, external links, background info | MusicBrainz |
+| External presence | MusicBrainz entry and how many external links it has (scales smoothly) | MusicBrainz |
 | Credits | Producer/writer credits on the recording | MusicBrainz |
+| Wikipedia | Has a musician/band article, and whether Wikipedia's own description calls the act AI-generated (decisive when it does) | Wikipedia (no key) |
+| Live performances | Concerts recorded for the act | setlist.fm (free key, optional) |
+| YouTube live videos | Third-party live-performance videos | YouTube Data API (free key, optional) |
 | Uniformity | Near-identical track lengths across a catalog | Deezer |
 | Label clustering | Share of a label's artists the crowd flagged | This server |
 
@@ -80,6 +83,16 @@ At `/cleaner.html`. It logs in with Spotify and writes a cleaned copy of a playl
 
 Spotify's Development Mode limits apply here: the app owner needs Premium and new apps are capped at 5 users. The checker page has no such limit because it doesn't use the Spotify API.
 
+### Real-world presence checks
+
+Three optional layers look for evidence that the act exists as people who perform:
+
+- **Wikipedia** works out of the box. It only flags an act when Wikipedia says so itself: Wikipedia's one-line description calling the act AI-generated is treated as decisive, while an AI mention only in the article's lead, or an act covered only inside an article about AI music, is a strong but non-decisive hint. A missing article says nothing, since many real small artists have none.
+- **setlist.fm** (concert history) needs a free key: request one at https://www.setlist.fm/settings/api and set `SETLISTFM_API_KEY`.
+- **YouTube** (third-party live videos) needs a YouTube Data API v3 key from the Google Cloud console, set as `YOUTUBE_API_KEY`. Each lookup uses 100 of the free 10,000 daily quota units, so results are cached for a week.
+
+Without keys those two layers are skipped and the score uses everything else. Keys are read from the environment, e.g. `SETLISTFM_API_KEY=… YOUTUBE_API_KEY=… pnpm dev`. Google search is deliberately not used: its Custom Search API is closed to new customers and scraping results breaks Google's terms.
+
 ### Shared blocklist
 
 `GET /api/blocklist` returns artists the crowd agrees are AI (JSON, or `?format=txt` for `key<TAB>name` lines).
@@ -107,6 +120,7 @@ MusicBrainz allows ~1 request/second, so those lookups run in the background. Th
 - **Human false positives are possible.** Labels that repackage back catalogs, or prolific real artists, can look like AI release patterns. Release velocity is only one weighted signal and reissues are collapsed, but expect some misses in both directions.
 - **YouTube matching is fuzzy.** Covers, remixes, fan uploads and live videos may match the wrong track or nothing. The page flags low-confidence matches and offers alternatives.
 - **Only tracks on Deezer can be scored.**
+- **Wikipedia only helps for notable acts.** A new or obscure AI act has no article, so it gets no signal either way. The setlist.fm and YouTube layers are untested against the live APIs because they need keys.
 - **Spotify AI Persona badge:** the signal exists but nothing feeds it yet. It is unclear whether Spotify exposes the label through any API.
 - **No audio analysis yet.** Planned as a tie-breaker for uncertain tracks.
 - **Votes are not sybil-resistant.** Reputation weighting helps, but anonymous IDs are cheap. Treat the crowd signal as advisory until there is real abuse protection.

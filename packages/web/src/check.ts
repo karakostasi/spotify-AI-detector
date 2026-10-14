@@ -26,20 +26,62 @@ const result = document.getElementById("result")!;
 let run = 0; // guards against out-of-order responses
 let refreshTimer: number | undefined;
 
+// ---- busy state: the search runs until the slower sources (MusicBrainz, Wikidata, ...) have answered
+const goButton = document.getElementById("go") as HTMLButtonElement;
+let busy = false;
+let startedAt = 0;
+let progressTimer: number | undefined;
+
+/** We don't know how long the sources take, so ease towards 95% and only finish when they're done. */
+const currentProgress = () => Math.min(95, Math.round(100 * (1 - Math.exp(-(Date.now() - startedAt) / 9000))));
+const progressBar = (label: string) =>
+  `<div class="progress" role="progressbar" aria-label="${label}" aria-valuemin="0" aria-valuemax="100" aria-valuenow="${currentProgress()}"><i style="width:${currentProgress()}%"></i></div>`;
+
+function tickProgress() {
+  const p = currentProgress();
+  document.querySelectorAll<HTMLElement>("#result .progress").forEach((bar) => {
+    bar.setAttribute("aria-valuenow", String(p));
+    (bar.firstElementChild as HTMLElement).style.width = `${p}%`;
+  });
+}
+
+function setBusy(b: boolean) {
+  busy = b;
+  goButton.disabled = b;
+  goButton.textContent = b ? "Checking…" : "Check";
+  input.disabled = b;
+  result.querySelectorAll<HTMLButtonElement>("button").forEach((x) => (x.disabled = b));
+  if (b && progressTimer === undefined) progressTimer = window.setInterval(tickProgress, 250);
+  if (!b) {
+    clearInterval(progressTimer);
+    progressTimer = undefined;
+  }
+}
+
 async function check(q: string, loader: () => Promise<CheckResponse>, refresh = 0) {
   clearTimeout(refreshTimer);
   const mine = ++run;
-  if (refresh === 0) result.innerHTML = `<section class="muted">Checking…</section>`;
+  if (refresh === 0) {
+    startedAt = Date.now();
+    result.innerHTML = `<section><p class="muted">Checking…</p>${progressBar("Checking sources")}</section>`;
+  }
+  setBusy(true);
   let r: CheckResponse;
   try {
     r = await loader();
   } catch (e) {
-    if (mine === run) result.innerHTML = `<section class="err">${esc((e as Error).message)}</section>`;
+    if (mine === run) {
+      setBusy(false);
+      result.innerHTML = `<section class="err">${esc((e as Error).message)}</section>`;
+    }
     return;
   }
   if (mine !== run) return;
-  render(r, q);
-  if (r.report?.pending && refresh < MAX_REFRESH) refreshTimer = window.setTimeout(() => void check(q, loader, refresh + 1), 4000);
+  // Done once the slow sources have answered, or after the last refresh (a source may never answer).
+  const settled = !r.report?.pending || refresh >= MAX_REFRESH;
+  if (settled) setBusy(false);
+  render(r, q, settled);
+  if (!settled) refreshTimer = window.setTimeout(() => void check(q, loader, refresh + 1), 4000);
 }
 
 function explain(r: Report): string {
@@ -50,7 +92,7 @@ function explain(r: Report): string {
   return "This looks like a real, established artist." + lowConf;
 }
 
-function render(c: CheckResponse, q: string) {
+function render(c: CheckResponse, q: string, settled: boolean) {
   const r = c.report;
   const parts: string[] = [];
   if (c.error && !r) parts.push(`<section class="err">${esc(c.error)}</section>`);
@@ -75,9 +117,11 @@ function render(c: CheckResponse, q: string) {
           </div>
         </div>
         ${
-          r.pending
-            ? `<p><span class="badge big unknown">Gathering more data…</span></p><p class="muted">Preliminary: ${pct === null ? "no score yet" : `${pct}% AI score`}. Checking more sources, this updates automatically.</p>`
-            : `<p><span class="badge big ${r.verdict}">${LABEL[r.verdict]}</span> ${pct === null ? "" : `<span class="pct">${pct}% AI score</span>`}</p><p>${explain(r)}</p>`
+          r.pending && !settled
+            ? `<p><span class="badge big unknown">Gathering more data…</span></p>${progressBar("Checking more sources")}<p class="muted">Preliminary: ${pct === null ? "no score yet" : `${pct}% AI score`}. Checking more sources, this updates automatically.</p>`
+            : `<p><span class="badge big ${r.verdict}">${LABEL[r.verdict]}</span> ${pct === null ? "" : `<span class="pct">${pct}% AI score</span>`}</p><p>${explain(r)}</p>${
+                r.pending ? `<p class="muted small">Some sources hadn't answered yet, so this is the best estimate so far. Check again in a minute for a sharper score.</p>` : ""
+              }`
         }
         <p class="small muted">Why:</p>
         <ul class="signals">${r.signals
@@ -92,6 +136,8 @@ function render(c: CheckResponse, q: string) {
   }
   parts.push(`<p class="again-wrap"><button type="button" id="again">Check another</button></p>`);
   result.innerHTML = parts.join("");
+  // buttons stay locked while the checks are still running
+  result.querySelectorAll<HTMLButtonElement>("button").forEach((x) => (x.disabled = busy));
   document.getElementById("again")!.onclick = reset;
 
   result.querySelectorAll<HTMLButtonElement>("button.alt").forEach((b) => {
@@ -114,6 +160,7 @@ function render(c: CheckResponse, q: string) {
 function reset() {
   clearTimeout(refreshTimer);
   run++;
+  setBusy(false);
   input.value = "";
   result.innerHTML = "";
   history.replaceState({}, "", location.pathname);

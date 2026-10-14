@@ -51,6 +51,7 @@ async function setup(app: { rateLimitPerMin?: number } = {}) {
     loadProfile: async (isrc) => (isrc === "USXXX2400001" ? structuredClone(prolific) : null),
     loadArtistProfile: async () => structuredClone(prolific),
     lookupWikidata: async () => undefined,
+    retryDelayMs: 0,
     lookupMb: async () => {
       mbCalls++;
       return { artistId: "mbid-1", artistFound: false, urlCount: 0, hasBackground: false, recordingFound: false, creditCount: 0 };
@@ -227,4 +228,52 @@ test("adding an API key re-runs lookups instead of serving results gathered with
   assert.equal(await run("", db), 0, "same keys: cached");
   assert.equal(await run("sy", db), 1, "keys added: looked up again");
   assert.equal(await run("sy", db), 0, "and cached again under the new keys");
+});
+
+test("a failed MusicBrainz lookup is retried once, and an incomplete result is only cached briefly", async () => {
+  const db = openDb();
+  let mbCalls = 0;
+  let failTimes = 0; // how many calls fail before MusicBrainz answers
+  const make = () =>
+    new ScoreService(db, {
+      deezer: fakeDeezer as any,
+      fetchText: fakeFetch,
+      loadProfile: async () => structuredClone(prolific),
+      loadArtistProfile: async () => structuredClone(prolific),
+      lookupWikidata: async () => undefined,
+      lookupMb: async () => {
+        mbCalls++;
+        return mbCalls <= failTimes ? undefined : { artistId: "m", artistFound: true, urlCount: 5, hasBackground: false, recordingFound: false, creditCount: 0 };
+      },
+      lookupWeb: async () => ({}),
+      retryDelayMs: 0,
+    });
+  const score = async (svc: ScoreService) => {
+    const r = await svc.scoreIsrc("USXXX2400001");
+    await svc.idle();
+    return r;
+  };
+
+  // one transient failure: the retry gets through and the full result is cached
+  failTimes = 1;
+  let svc = make();
+  await score(svc);
+  assert.equal(mbCalls, 2, "failed once, retried once");
+  assert.equal((await score(svc))!.pending, false);
+  assert.ok((await score(svc))!.signals.find((x) => x.id === "externalPresence")!.score !== null, "MusicBrainz data made it into the result");
+  assert.equal(mbCalls, 2, "full result is cached");
+
+  // MusicBrainz stays down: cached only briefly, so it is tried again soon
+  db.exec("DELETE FROM cache WHERE k LIKE 'extra:%'");
+  mbCalls = 0;
+  failTimes = 99;
+  svc = make();
+  await score(svc);
+  assert.equal(mbCalls, 2);
+  assert.equal((await score(svc))!.pending, false, "served from the short-lived cache, no new lookups");
+  assert.equal(mbCalls, 2);
+  db.exec("UPDATE cache SET ts = ts - 10 * 60 * 1000 WHERE k LIKE 'extra:%'"); // 10 minutes later
+  assert.equal((await svc.scoreIsrc("USXXX2400001"))!.pending, true, "the incomplete entry expired, so it looks again");
+  await svc.idle();
+  assert.equal(mbCalls, 4);
 });

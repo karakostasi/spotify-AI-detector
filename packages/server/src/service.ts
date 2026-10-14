@@ -4,7 +4,7 @@ import {
   type ArtistProfile, type MusicBrainzInfo, type ScoreReport, type WebPresence, type WikidataInfo,
 } from "@aid/core";
 import { Crowd } from "./crowd.js";
-import { cacheGet, cacheSet } from "./db.js";
+import { cacheEntry, cacheGet, cacheSet } from "./db.js";
 import {
   CONFIDENT, PLAUSIBLE, findMatches, hintFromSpotify, hintFromText, hintFromYouTube, parseInput,
   type Hint, type Match, type Source,
@@ -12,6 +12,9 @@ import {
 
 const PROFILE_TTL = 24 * 3600 * 1000;
 const EXTRA_TTL = 7 * 24 * 3600 * 1000;
+/** A lookup where a source failed is retried soon, not trusted for a week. */
+const PARTIAL_TTL = 5 * 60 * 1000;
+const RETRY_DELAY_MS = 2000;
 
 export interface ServerReport extends ScoreReport {
   /** MusicBrainz data is still being fetched; score will sharpen on a later request */
@@ -48,6 +51,8 @@ export interface ServiceDeps {
    * re-runs the lookups instead of serving week-old results that were gathered without it.
    */
   webKeyTag?: string;
+  /** Pause before retrying a failed MusicBrainz lookup (default 2s; tests use 0) */
+  retryDelayMs?: number;
 }
 
 export function defaultDeps(): ServiceDeps {
@@ -105,7 +110,8 @@ export class ScoreService {
     // MusicBrainz is slow (1 req/s), so serve what we have and fill the rest in behind the scenes.
     // The web lookups run after it because setlist.fm needs the MusicBrainz id.
     const extraKey = `extra:v2:${this.deps.webKeyTag ?? ""}:${normalizeName(profile.name)}:${isrc ?? ""}`;
-    const cached = cacheGet<{ info: MusicBrainzInfo | null; web: WebPresence | null }>(this.db, extraKey, EXTRA_TTL);
+    const entry = cacheEntry<{ info: MusicBrainzInfo | null; web: WebPresence | null; partial?: boolean }>(this.db, extraKey);
+    const cached = entry && Date.now() - entry.ts < (entry.value.partial ? PARTIAL_TTL : EXTRA_TTL) ? entry.value : undefined;
     let pending = false;
     if (cached) {
       if (cached.info) profile.musicBrainz = cached.info;
@@ -117,10 +123,15 @@ export class ScoreService {
       void this.once(extraKey, async () => {
         // Wikidata first: its MusicBrainz id finds artists the name search misses.
         const wikidata = await this.deps.lookupWikidata(name, deezerId ? Number(deezerId) : undefined);
-        const info = await this.deps.lookupMb(name, isrc, wikidata?.musicBrainzId);
+        let info = await this.deps.lookupMb(name, isrc, wikidata?.musicBrainzId);
+        if (!info) {
+          // MusicBrainz sometimes rejects or drops a request; one retry usually gets through.
+          await new Promise((r) => setTimeout(r, this.deps.retryDelayMs ?? RETRY_DELAY_MS));
+          info = await this.deps.lookupMb(name, isrc, wikidata?.musicBrainzId);
+        }
         const web = await this.deps.lookupWeb(name, info?.artistId);
         const combined = web || wikidata ? { ...web, ...(wikidata ? { wikidata } : {}) } : null;
-        cacheSet(this.db, extraKey, { info: info ?? null, web: combined });
+        cacheSet(this.db, extraKey, { info: info ?? null, web: combined, partial: !info });
       }).catch(() => undefined);
     }
 

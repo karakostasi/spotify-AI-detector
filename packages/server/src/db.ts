@@ -36,3 +36,9 @@ export function cacheGet<T>(db: DatabaseSync, key: string, maxAgeMs: number, now
 export function cacheSet(db: DatabaseSync, key: string, value: unknown, now = Date.now()): void {
   db.prepare("INSERT OR REPLACE INTO cache (k, json, ts) VALUES (?, ?, ?)").run(key, JSON.stringify(value), now);
 }
+
+/** Like cacheGet, but also returns when the entry was written so callers can apply their own expiry. */
+export function cacheEntry<T>(db: DatabaseSync, key: string): { value: T; ts: number } | undefined {
+  const row = db.prepare("SELECT json, ts FROM cache WHERE k = ?").get(key) as { json: string; ts: number } | undefined;
+  return row ? { value: JSON.parse(row.json) as T, ts: row.ts } : undefined;
+}

@@ -196,6 +196,7 @@ test("usableImage keeps real Deezer photos and drops placeholders and foreign ho
   const real = "https://cdn-images.dzcdn.net/images/artist/2a1b/500x500-000000-80-0-0.jpg";
   assert.equal(usableImage(real), real);
   assert.equal(usableImage("https://cdn-images.dzcdn.net/images/artist//500x500-000000-80-0-0.jpg"), undefined, "empty hash = no photo");
+  assert.equal(usableImage("https://cdn-images.dzcdn.net/images/artist/9285442897dbcc4a8eb9cf52d6d4073d/500x500-000000-80-0-0.jpg"), undefined, "the generic silhouette is not a photo");
   assert.equal(usableImage("https://evil.example.com/x.jpg"), undefined);
   assert.equal(usableImage("http://cdn-images.dzcdn.net/images/artist/2a1b/x.jpg"), undefined, "https only");
   assert.equal(usableImage("javascript:alert(1)"), undefined);
@@ -433,4 +434,27 @@ test("data cached in the old YouTube shape ({liveVideos}) no longer crashes scor
   const legacy = base({ name: "Nefeli Fasouli", web: { youtube: { liveVideos: 1 } as any } });
   assert.equal(youtubeLive(legacy, new Date()).score, null, "treated as not checked");
   assert.doesNotThrow(() => scoreArtist(legacy, { now: new Date() }));
+});
+
+test("a signal or two is not enough for a verdict: low evidence reads 'not enough evidence', not a green 'likely human'", () => {
+  const now = new Date("2026-10-14");
+  // only a thin MusicBrainz entry (the 'Justin Johnston' case)
+  const thin = scoreArtist(base({ musicBrainz: { artistFound: true, urlCount: 1, hasBackground: false, recordingFound: false, creditCount: 0 } }), { now });
+  assert.equal(thin.verdict, "unknown");
+  assert.ok(thin.score !== null && thin.confidence < 0.3, "the score is still reported, just not turned into a verdict");
+
+  // a decisive AI statement needs no corroboration
+  const ai = scoreArtist(base({ web: { wikidata: { found: true, aiDescribed: true, isHuman: false, linkCount: 0, description: "AI musical artist" } } }), { now });
+  assert.equal(ai.verdict, "likely-ai");
+
+  // enough independent evidence gives a normal verdict
+  const solid = scoreArtist(
+    base({
+      albums: [{ id: "1", title: "A", releaseDate: "2026-01-01", trackCount: 10, recordType: "album" }],
+      musicBrainz: { artistFound: true, urlCount: 12, hasBackground: true, recordingFound: false, creditCount: 0 },
+      web: { wikidata: { found: true, aiDescribed: false, isHuman: true, birthYear: 1990, linkCount: 9 } },
+    }),
+    { now },
+  );
+  assert.equal(solid.verdict, "likely-human");
 });

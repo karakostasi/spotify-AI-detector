@@ -4,6 +4,9 @@ import { clamp01 } from "./util.js";
 
 export const THRESHOLDS = { likelyAi: 0.7, suspicious: 0.45 };
 
+/** Below this much evidence we say "not enough evidence" rather than guess a verdict from a signal or two. */
+export const MIN_CONFIDENCE = 0.3;
+
 /** Sum of weights at which we consider the evidence "complete". */
 const FULL_EVIDENCE_WEIGHT = 5;
 
@@ -41,7 +44,7 @@ export function scoreArtist(
   }
   const score = clamp01(active.reduce((n, r) => n + r.score! * r.weight, 0) / totalWeight);
   const confidence = clamp01(totalWeight / FULL_EVIDENCE_WEIGHT);
-  return { ...base, score, confidence, verdict: verdictFor(score) };
+  return { ...base, score, confidence, verdict: confidence < MIN_CONFIDENCE ? "unknown" : verdictFor(score) };
 }
 
 /** Below this the score is already clearly human, above the upper bound clearly AI: no need to spend YouTube quota. */

@@ -14,8 +14,19 @@ const LINK_PROPS = ["P856", "P2397", "P2003", "P2002", "P2013", "P1902", "P2850"
 interface Claim {
   mainsnak?: { datavalue?: { value?: unknown } };
 }
+export interface WikidataCandidate {
+  id: string;
+  /** English label, which is also how the artist is usually spelled on streaming services */
+  label: string;
+  description?: string;
+  deezerArtistId?: number;
+  musicBrainzId?: string;
+  aiDescribed: boolean;
+}
+
 interface Entity {
   id: string;
+  labels?: { en?: { value?: string } };
   descriptions?: { en?: { value?: string } };
   claims?: Record<string, Claim[]>;
 }
@@ -34,6 +45,42 @@ export class Wikidata {
 
   private get<T>(params: string): Promise<T | null> {
     return getJson<T>(this.f, `${API}?${params}&format=json`, { "user-agent": this.userAgent }).catch(() => null);
+  }
+
+  /**
+   * Musicians matching any of the given names, searching Wikidata in each language (a Greek spelling only matches with
+   * language "el"). Each candidate carries its English label and description plus its Deezer and MusicBrainz ids,
+   * which is what lets "john williams guitar" land on the guitarist and a Greek spelling on the Latin-spelled artist.
+   */
+  async candidates(names: string[], languages: string[] = ["en"], limit = 8): Promise<WikidataCandidate[]> {
+    const found = new Map<string, { description?: string }>();
+    for (const name of names.slice(0, 4)) {
+      for (const language of languages) {
+        const r = await this.get<{ search?: { id: string; description?: string }[] }>(
+          `action=wbsearchentities&search=${encodeURIComponent(name)}&language=${language}&type=item&limit=${limit}`,
+        );
+        for (const c of r?.search ?? []) {
+          if (c.description && (MUSICAL.test(c.description) || looksAiMade(c.description))) found.set(c.id, { description: c.description });
+        }
+      }
+    }
+    const ids = [...found.keys()].slice(0, 10);
+    if (!ids.length) return [];
+    const got = await this.get<{ entities?: Record<string, Entity> }>(`action=wbgetentities&ids=${ids.join("|")}&props=claims|descriptions|labels&languages=en`);
+    return ids.flatMap((id) => {
+      const e = got?.entities?.[id];
+      const label = e?.labels?.en?.value;
+      if (!e || !label) return [];
+      const description = e.descriptions?.en?.value ?? found.get(id)?.description;
+      const deezer = Number(String(values(e, DEEZER_ID)[0] ?? ""));
+      const mbid = values(e, MUSICBRAINZ_ID)[0];
+      return [{
+        id, label, description,
+        deezerArtistId: Number.isFinite(deezer) && deezer > 0 ? deezer : undefined,
+        musicBrainzId: typeof mbid === "string" ? mbid : undefined,
+        aiDescribed: looksAiMade(description ?? ""),
+      }];
+    });
   }
 
   async lookup(name: string, deezerArtistId?: number): Promise<WikidataInfo> {

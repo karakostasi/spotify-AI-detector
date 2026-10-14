@@ -23,6 +23,16 @@ export class MusicBrainz {
     return this.throttle.run(() => getJson<T>(this.f, `${BASE}${path}`, { "user-agent": this.userAgent }));
   }
 
+  /** The Deezer artist id linked from this MusicBrainz artist's external links, if any. */
+  async deezerArtistId(mbid: string): Promise<number | undefined> {
+    const full = await this.get<{ relations?: { url?: { resource?: string } }[] }>(`/artist/${encodeURIComponent(mbid)}?inc=url-rels&fmt=json`);
+    for (const r of full?.relations ?? []) {
+      const m = /deezer\.com\/(?:[a-z]{2}\/)?artist\/(\d+)/.exec(r.url?.resource ?? "");
+      if (m) return Number(m[1]);
+    }
+    return undefined;
+  }
+
   /** Recorded concerts and live albums for an artist. MusicBrainz coverage of events is patchy, so zero is weak evidence. */
   async liveEvidence(mbid: string): Promise<{ events: number; liveReleases: number }> {
     const id = encodeURIComponent(mbid);

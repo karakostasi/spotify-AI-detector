@@ -20,7 +20,7 @@ test("parseInput rejects other hosts, bad ids and lookalikes", () => {
   assert.equal(parseInput("https://evil.com/open.spotify.com/track/" + ID), null);
   assert.equal(parseInput("https://open.spotify.com.evil.com/track/" + ID), null);
   assert.equal(parseInput("https://open.spotify.com/track/short"), null);
-  assert.deepEqual(parseInput("https://open.spotify.com/playlist/" + ID + "?si=abc"), { kind: "spotify-playlist", id: ID });
+  assert.equal(parseInput("https://open.spotify.com/playlist/" + ID), null);
   assert.equal(parseInput("https://open.spotify.com/album/" + ID), null);
   assert.equal(parseInput("https://www.youtube.com/watch?v=../../etc"), null);
   assert.equal(parseInput(""), null);

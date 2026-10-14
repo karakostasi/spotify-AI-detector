@@ -5,7 +5,6 @@ export type Source = "spotify" | "youtube" | "text";
 export type ParsedInput =
   | { kind: "spotify-track"; id: string }
   | { kind: "spotify-artist"; id: string }
-  | { kind: "spotify-playlist"; id: string }
   | { kind: "youtube"; id: string }
   | { kind: "text"; text: string };
 
@@ -17,8 +16,6 @@ export interface Hint {
 
 export interface Match {
   deezerTrackId: number;
-  /** Deezer's id for the credited artist, straight from the search result */
-  artistId: number;
   title: string;
   artist: string;
   album: string;
@@ -42,8 +39,8 @@ export function parseInput(raw: string): ParsedInput | null {
   }
   const host = u.hostname.replace(/^(www|m|music)\./, "");
   if (host === "open.spotify.com") {
-    const m = /^\/(?:intl-[a-z-]+\/)?(track|artist|playlist)\/([A-Za-z0-9]+)/.exec(u.pathname);
-    if (m && SPOTIFY_ID.test(m[2]!)) return { kind: `spotify-${m[1] as "track" | "artist" | "playlist"}`, id: m[2]! };
+    const m = /^\/(?:intl-[a-z-]+\/)?(track|artist)\/([A-Za-z0-9]+)/.exec(u.pathname);
+    if (m && SPOTIFY_ID.test(m[2]!)) return { kind: `spotify-${m[1] as "track" | "artist"}`, id: m[2]! };
     return null;
   }
   let id: string | null = null;
@@ -137,7 +134,6 @@ export async function findMatches(dz: Deezer, hint: Hint): Promise<Match[]> {
   return [...seen.values()]
     .map((h) => ({
       deezerTrackId: h.id,
-      artistId: h.artist.id,
       title: h.title,
       artist: h.artist.name,
       album: h.album.title,

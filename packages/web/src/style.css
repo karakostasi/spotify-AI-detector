@@ -24,10 +24,6 @@ form button { padding: 0 24px; }
 /* The logo has a black background; "lighten" makes it merge into the page color. */
 .banner { display: block; width: min(100%, 440px); height: auto; margin: 0 auto; mix-blend-mode: lighten; }
 .banner.small { width: min(100%, 220px); margin: 0; }
-.cta { display: block; width: fit-content; max-width: 100%; margin: 20px auto 8px; padding: 10px 18px; text-align: center; text-decoration: none; color: #1db954; border: 2px solid #1db954; border-radius: 10px; background: rgba(29, 185, 84, .08); transition: background .15s, color .15s; }
-.cta:hover, .cta:focus-visible { background: #1db954; color: #000; }
-.cta-title { display: block; font-size: 1rem; font-weight: 700; }
-.cta-sub { display: block; margin-top: 2px; font-size: .75rem; opacity: .85; }
 .footnote { text-align: center; }
 .again-wrap { text-align: center; margin: 20px 0 0; }
 .who { display: flex; align-items: center; gap: 16px; margin-bottom: 4px; }
@@ -37,12 +33,3 @@ form button { padding: 0 24px; }
 .progress i { display: block; height: 100%; width: 0; background: #1db954; border-radius: 3px; transition: width .25s ease; }
 button:disabled, input:disabled { cursor: not-allowed; }
 input:disabled { opacity: .7; }
-.pllist { list-style: none; margin: 8px 0; padding: 0; }
-.plrow { padding: 8px 0; border-bottom: 1px solid #262626; }
-.plrow label { display: flex; gap: 10px; align-items: flex-start; cursor: pointer; }
-.plrow input { margin-top: 4px; }
-.ok { color: #1db954; }
-#cleanArea button, #cidForm button { margin-top: 6px; }
-#cidForm { display: flex; gap: 8px; margin: 8px 0; }
-#cidForm input { flex: 1; padding: 8px; background: #262626; color: #eee; border: 1px solid #333; border-radius: 6px; }
-code { background: #262626; padding: 1px 5px; border-radius: 4px; font-size: .85em; }

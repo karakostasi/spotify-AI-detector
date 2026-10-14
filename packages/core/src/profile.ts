@@ -6,15 +6,13 @@ import { Wikidata } from "./providers/wikidata.js";
 export interface ProfileOptions {
   deezer?: Deezer;
   musicBrainz?: MusicBrainz | null;
-  /** Skip the artist record (fan count, photo) to save a request when only the catalogue matters */
-  skipArtistInfo?: boolean;
   /** How many of the newest albums to fetch details (label, track count) for */
   detailAlbums?: number;
 }
 
 async function enrich(artistId: number, name: string, isrc: string | undefined, o: Required<Pick<ProfileOptions, "detailAlbums">> & ProfileOptions): Promise<ArtistProfile> {
   const dz = o.deezer ?? new Deezer();
-  const [albums, topTracks, artist] = await Promise.all([dz.albums(artistId), dz.topTracks(artistId), o.skipArtistInfo ? null : dz.artist(artistId)]);
+  const [albums, topTracks, artist] = await Promise.all([dz.albums(artistId), dz.topTracks(artistId), dz.artist(artistId)]);
 
   // Track counts and labels need one call per album; only do the newest few.
   const newest = [...albums].sort((a, b) => b.releaseDate.localeCompare(a.releaseDate));

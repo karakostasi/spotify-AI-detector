@@ -43,7 +43,7 @@ export class Deezer {
 
   /**
    * @param minGapMs minimum pause between requests across everything sharing this instance (0 = none). A busy server
-   *   should set about 120 so a burst of lookups, like scanning a playlist, stays under Deezer's rate limit.
+   *   should set about 100 so a burst of lookups stays under Deezer's rate limit.
    * @param retryDelayMs wait before retrying a request that hit the rate limit
    */
   constructor(private f: Fetch = fetch, minGapMs = 0, private retryDelayMs = 1100) {

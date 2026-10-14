@@ -11,6 +11,6 @@ const defaultStatic = fileURLToPath(new URL("../../web/dist", import.meta.url));
 const staticDir = process.env.STATIC_DIR ?? (existsSync(defaultStatic) ? defaultStatic : undefined);
 
 const svc = new ScoreService(openDb(dbPath), defaultDeps());
-createApp(svc, { staticDir, trustProxy: process.env.TRUST_PROXY === "1", spotifyClientId: process.env.SPOTIFY_CLIENT_ID || undefined }).listen(port, host, () =>
+createApp(svc, { staticDir, trustProxy: process.env.TRUST_PROXY === "1" }).listen(port, host, () =>
   console.log(`AI detector on http://${host}:${port} (db: ${dbPath}${staticDir ? `, web: ${staticDir}` : ", no web build found"})`),
 );

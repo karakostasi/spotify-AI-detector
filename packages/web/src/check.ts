@@ -1,5 +1,4 @@
 import { DEFAULT_SERVER, DetectorClient, getUserId, type CheckResponse, type Report } from "@aid/client";
-import { PLAYLIST_LINK, pendingAfterLogin, scanPlaylist } from "./playlist.js";
 
 const app = document.getElementById("app")!;
 const esc = (s: string) => s.replace(/[&<>"']/g, (c) => `&#${c.charCodeAt(0)};`);
@@ -12,14 +11,10 @@ const MAX_REFRESH = 6;
 app.innerHTML = `
   <a href="/"><img class="banner" src="/logo.png" alt="AI Music Detector" width="900" height="600" /></a>
   <form id="form">
-    <input type="text" id="q" placeholder="Paste a Spotify or YouTube link (track, artist or playlist), or type an artist name, to see how likely the music is AI-generated" aria-label="Spotify or YouTube link, or artist name" autocomplete="off" />
+    <input type="text" id="q" placeholder="Paste a Spotify or YouTube link, or type an artist name, to see how likely the music is AI-generated" aria-label="Spotify or YouTube link, or artist name" autocomplete="off" />
     <button type="submit" id="go">Check</button>
   </form>
   <div id="result"></div>
-  <a class="cta" href="/cleaner.html">
-    <span class="cta-title">Browse my own playlists →</span>
-    <span class="cta-sub">Log in to scan any of your playlists or Liked Songs, not just the first 100 tracks</span>
-  </a>
   <p class="muted small footnote">An estimate from public metadata and community votes, not proof.</p>`;
 
 const input = document.getElementById("q") as HTMLInputElement;
@@ -34,8 +29,7 @@ let startedAt = 0;
 let progressTimer: number | undefined;
 
 /** We don't know how long the sources take, so ease towards 95% and only finish when they're done. */
-let fixedProgress: number | null = null;
-const currentProgress = () => fixedProgress ?? Math.min(95, Math.round(100 * (1 - Math.exp(-(Date.now() - startedAt) / 9000))));
+const currentProgress = () => Math.min(95, Math.round(100 * (1 - Math.exp(-(Date.now() - startedAt) / 9000))));
 const progressBar = (label: string) =>
   `<div class="progress" role="progressbar" aria-label="${label}" aria-valuemin="0" aria-valuemax="100" aria-valuenow="${currentProgress()}"><i style="width:${currentProgress()}%"></i></div>`;
 
@@ -191,32 +185,11 @@ function reset() {
 // Selecting on focus lets you paste a new link straight over the previous one.
 input.addEventListener("focus", () => input.select());
 
-function submit(q: string, resume?: Parameters<typeof scanPlaylist>[3]) {
+function submit(q: string) {
   q = q.trim();
   if (!q) return;
   history.replaceState({}, "", `?q=${encodeURIComponent(q)}`);
-  const playlist = PLAYLIST_LINK.exec(q);
-  if (playlist) return void runPlaylist(playlist[1]!, q, resume);
   void check(q, () => client.check(q));
-}
-
-/** A playlist link scans every track instead of checking one artist. */
-async function runPlaylist(id: string, q: string, resume?: Parameters<typeof scanPlaylist>[3]) {
-  clearTimeout(refreshTimer);
-  const mine = ++run;
-  startedAt = Date.now();
-  await scanPlaylist(id, q, {
-    result,
-    isCurrent: () => mine === run,
-    busy: (b) => {
-      setBusy(b);
-      if (!b) fixedProgress = null;
-    },
-    progress: (pct) => {
-      fixedProgress = pct;
-      tickProgress();
-    },
-  }, resume);
 }
 
 document.getElementById("form")!.addEventListener("submit", (e) => {
@@ -224,15 +197,8 @@ document.getElementById("form")!.addEventListener("submit", (e) => {
   submit(input.value);
 });
 
-// Back from logging in with Spotify: rescan (cached, so quick) and finish creating the clean copy.
-void pendingAfterLogin().then((pending) => {
-  if (pending) {
-    input.value = pending.url;
-    return submit(pending.url, pending);
-  }
-  const initial = new URLSearchParams(location.search).get("q");
-  if (initial) {
-    input.value = initial;
-    submit(initial);
-  }
-});
+const initial = new URLSearchParams(location.search).get("q");
+if (initial) {
+  input.value = initial;
+  submit(initial);
+}

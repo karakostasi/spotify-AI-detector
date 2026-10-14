@@ -4,16 +4,19 @@ const SCOPES = "playlist-read-private playlist-read-collaborative playlist-modif
 
 const b64url = (buf: ArrayBuffer) => btoa(String.fromCharCode(...new Uint8Array(buf))).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
 
+/** The only permission the main page needs: creating the cleaned copy. It cannot read your library. */
+export const CREATE_PLAYLIST_SCOPE = "playlist-modify-private";
+
 export const redirectUri = () => location.origin + location.pathname;
 
-export async function startLogin(clientId: string): Promise<void> {
+export async function startLogin(clientId: string, scope: string = SCOPES): Promise<void> {
   const verifier = b64url(crypto.getRandomValues(new Uint8Array(32)).buffer);
   const challenge = b64url(await crypto.subtle.digest("SHA-256", new TextEncoder().encode(verifier)));
   const state = b64url(crypto.getRandomValues(new Uint8Array(16)).buffer);
   sessionStorage.setItem("pkce", JSON.stringify({ verifier, state, clientId }));
   const q = new URLSearchParams({
     client_id: clientId, response_type: "code", redirect_uri: redirectUri(),
-    scope: SCOPES, code_challenge_method: "S256", code_challenge: challenge, state,
+    scope, code_challenge_method: "S256", code_challenge: challenge, state,
   });
   location.href = `${AUTH}/authorize?${q}`;
 }

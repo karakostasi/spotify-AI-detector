@@ -75,14 +75,17 @@ pnpm cli isrc USRC17607839
 pnpm cli artist "Some Artist" --no-mb --json
 ```
 
-### Playlist cleaner
+### Scanning a playlist
 
-At `/cleaner.html`. It logs in with Spotify and writes a cleaned copy of a playlist or Liked Songs.
+Paste a Spotify playlist link into the main search box. The page reads the playlist's tracks, matches each to its artist, scores every artist, and lists the tracks that look AI-generated, each with the reason. Untick any you want to keep, then **Create a clean copy** makes a new private playlist without the rest. Your original is never touched.
 
-1. Create an app at the [Spotify developer dashboard](https://developer.spotify.com/dashboard) and add `http://127.0.0.1:5173/` (dev) or your site's `/cleaner.html` URL as a redirect URI.
-2. Open the page, paste your Client ID, log in, pick a source, scan, adjust the threshold, and create the cleaned playlist.
+- **No login to scan.** The tracks come from Spotify's public embed page, so this works on any public playlist and has none of the Spotify developer-mode limits. The catch: Spotify's embed shows **only the first 100 tracks**, and the page says so when a playlist reaches that.
+- **Login only to create the copy.** "Log in with Spotify" appears at that step and asks for a single permission, creating playlists (`playlist-modify-private`). It cannot read your library. After you return from Spotify the page finishes the job on its own.
+- **Fast mode.** A playlist is scored from Deezer, Wikidata and Wikipedia only, skipping MusicBrainz, whose 1-request-per-second limit would turn 50 tracks into minutes. It still catches acts that Wikipedia or Wikidata describe as AI-generated and prolific release patterns, and a 50-track playlist takes about a minute. Results are cached, so rescans are quick. Open a single artist for the full check.
+- **Careful matching.** A track is only scored when it clearly matches a Deezer track; tracks that don't (not on Deezer, odd titles) are reported as unscored, never guessed at.
+- **Spotify setup.** Set `SPOTIFY_CLIENT_ID` (see `.env.example`) so visitors don't have to paste their own. Create an app at the [Spotify dashboard](https://developer.spotify.com/dashboard) and add your site, with a trailing slash (for example `http://127.0.0.1:5173/`), as a redirect URI. In Spotify's Development Mode only the owner (who needs Premium) and up to 4 people you add by email can log in, and anyone else gets a clear "ask the owner to add you" message. Because login is only needed for the copy, scanning is never blocked by that limit.
 
-Spotify's Development Mode limits apply here: the app owner needs Premium and new apps are capped at 5 users. The checker page has no such limit because it doesn't use the Spotify API.
+For playlists you own that are longer than 100 tracks, `/cleaner.html` logs in and reads the full list through Spotify's API.
 
 ### Real-world presence checks
 
@@ -136,6 +139,9 @@ Environment variables: `PORT`, `HOST` (default `127.0.0.1`), `DB_PATH`, `STATIC_
 | `GET /api/score?isrc=` | Score one track's artist |
 | `POST /api/score/batch` `{tracks:[{isrc}]}` | Up to 50 at once |
 | `POST /api/vote` `{artistKey, vote}` + `X-User-Id` | Vote `ai` or `human` |
+| `GET /api/playlist?id=` | Tracks of a public playlist (first 100) |
+| `POST /api/playlist/score` `{items:[{id,title,artists}]}` | Fast-mode scores for up to 12 playlist tracks |
+| `GET /api/config` | Public settings (the Spotify Client ID, if configured) |
 | `GET /api/blocklist` | Crowd-flagged artists |
 
 MusicBrainz allows ~1 request/second, so those lookups run in the background. The first response for a new artist has `pending: true` and a lower-confidence score; ask again a few seconds later.
@@ -146,6 +152,7 @@ MusicBrainz allows ~1 request/second, so those lookups run in the background. Th
 - **Human false positives are possible.** Labels that repackage back catalogs, or prolific real artists, can look like AI release patterns. Release velocity is only one weighted signal and reissues are collapsed, but expect some misses in both directions.
 - **YouTube matching is fuzzy.** Covers, remixes, fan uploads and live videos may match the wrong track or nothing. The page flags low-confidence matches and offers alternatives.
 - **A name shared by several unknown artists cannot be settled from free data.** If no source describes them (Wikidata and MusicBrainz often have nothing for small artists), the page cannot tell which "Justin Johnston" plays guitar. It says so and lists the alternatives.
+- **Playlist scans stop at 100 tracks** and skip MusicBrainz (see above); `/cleaner.html` handles longer playlists you own.
 - **Only tracks on Deezer can be scored.**
 - **Wikipedia only helps for notable acts.** A new or obscure AI act has no article, so it gets no signal either way. The setlist.fm and YouTube layers are untested against the live APIs because they need keys.
 - **Spotify AI Persona badge:** the signal exists but nothing feeds it yet. It is unclear whether Spotify exposes the label through any API.

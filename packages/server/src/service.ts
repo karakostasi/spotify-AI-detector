@@ -1,12 +1,13 @@
 import type { DatabaseSync } from "node:sqlite";
 import {
-  scoreArtist, normalizeName, profileFromIsrc, profileFromArtistId, lookupWebPresence, needsYouTube, YouTube, Deezer, MusicBrainz, Wikidata, normalizeName as foldName,
-  type ArtistProfile, type MusicBrainzInfo, type ScoreReport, type WebPresence, type WikidataInfo, type YouTubeVideo,
+  scoreArtist, normalizeName, profileFromIsrc, profileFromArtistId, lookupWebPresence, needsYouTube, YouTube, Wikipedia, Deezer, MusicBrainz, Wikidata, normalizeName as foldName,
+  type ArtistProfile, type MusicBrainzInfo, type ScoreReport, type WebPresence, type WikidataInfo, type WikipediaInfo, type YouTubeVideo,
 } from "@aid/core";
 import { Crowd } from "./crowd.js";
 import { cacheEntry, cacheGet, cacheSet } from "./db.js";
 import { resolveArtist, type ArtistChoice, type LlmHints, type ResolverDeps } from "./artistResolver.js";
 import { createInterpreter } from "./ai.js";
+import { fetchPlaylist, type PlaylistInfo } from "./playlist.js";
 import {
   CONFIDENT, PLAUSIBLE, findMatches, hintFromSpotify, hintFromText, hintFromYouTube, parseInput,
   type Hint, type Match, type Source,
@@ -18,6 +19,10 @@ const EXTRA_SCHEMA = 3;
 const EXTRA_TTL = 7 * 24 * 3600 * 1000;
 /** A lookup where a source failed is retried soon, not trusted for a week. */
 const PARTIAL_TTL = 5 * 60 * 1000;
+const PLAYLIST_TTL = 10 * 60 * 1000;
+/** Playlist tracks must match a Deezer track at least this well before we score the artist */
+const PLAYLIST_MATCH = 0.7;
+const NO_MATCH: PlaylistScore = { matched: false, score: null, verdict: "unknown", confidence: 0, reasons: [] };
 const AI_TTL = 30 * 24 * 3600 * 1000;
 /** A failed or empty AI answer is retried soon rather than remembered */
 const AI_MISS_TTL = 10 * 60 * 1000;
@@ -49,6 +54,24 @@ export interface CheckResult {
   unverifiedClues?: boolean;
 }
 
+/** One playlist track's verdict, from the fast scoring mode. */
+export interface PlaylistScore {
+  /** The track matched a Deezer artist we could score */
+  matched: boolean;
+  artist?: { id: number; name: string };
+  score: number | null;
+  verdict: "likely-ai" | "suspicious" | "likely-human" | "unknown";
+  confidence: number;
+  /** The strongest reasons pointing at AI, for flagged tracks */
+  reasons: string[];
+}
+
+export interface PlaylistItem {
+  id: string;
+  title: string;
+  artists: string;
+}
+
 type FetchText = (url: string) => Promise<{ ok: boolean; text: () => Promise<string>; json: () => Promise<any> }>;
 
 export interface ServiceDeps {
@@ -62,6 +85,10 @@ export interface ServiceDeps {
   wikidataCandidates?: ResolverDeps["wikidataCandidates"];
   /** Deezer artist id linked from a MusicBrainz artist */
   mbDeezerId?: ResolverDeps["mbDeezerId"];
+  /** Deezer-only profile that skips the slow per-album detail calls (playlist scanning). Defaults to loadArtistProfile. */
+  loadQuickProfile?: (artistId: number, name: string) => Promise<ArtistProfile>;
+  /** Wikipedia-only lookup for fast scoring. Absent: Wikipedia is skipped in fast mode. */
+  lookupWikipedia?: (artistName: string) => Promise<WikipediaInfo | undefined>;
   /** AI layer: untangles a query the plain search could not resolve. Absent when no ANTHROPIC_API_KEY is set. */
   interpretQuery?: (text: string) => Promise<LlmHints | undefined>;
   lookupMb: (artistName: string, isrc?: string, mbidHint?: string) => Promise<MusicBrainzInfo | undefined>;
@@ -81,7 +108,7 @@ export interface ServiceDeps {
 export function defaultDeps(): ServiceDeps {
   const mb = new MusicBrainz();
   const wikidata = new Wikidata();
-  const deezer = new Deezer();
+  const deezer = new Deezer(fetch, 105);
   return {
     deezer,
     fetchText: (url) => fetch(url, { headers: { "user-agent": "Mozilla/5.0 (compatible; spotify-ai-detector)" }, signal: AbortSignal.timeout(8000) }),
@@ -92,6 +119,8 @@ export function defaultDeps(): ServiceDeps {
     wikidataCandidates: (names, languages) => wikidata.candidates(names, languages),
     mbDeezerId: (mbid) => mb.deezerArtistId(mbid),
     interpretQuery: process.env.ANTHROPIC_API_KEY ? createInterpreter() : undefined,
+    loadQuickProfile: (id, name) => profileFromArtistId(id, name, undefined, { musicBrainz: null, detailAlbums: 0, skipArtistInfo: true, deezer }),
+    lookupWikipedia: (name) => new Wikipedia().lookup(name).catch(() => undefined),
     lookupMb: (name, isrc, hint) => mb.lookup(name, isrc, hint).catch(() => undefined),
     lookupWeb: (name, mbid) =>
       lookupWebPresence(name, { mbid, musicBrainz: mb, setlistFmKey: process.env.SETLISTFM_API_KEY }).catch(() => undefined),
@@ -224,6 +253,7 @@ export class ScoreService {
   async check(raw: string): Promise<CheckResult> {
     const fail = (error: string): CheckResult => ({ confident: false, alternatives: [], report: null, error });
     const parsed = parseInput(raw);
+    if (parsed?.kind === "spotify-playlist") return fail("That is a playlist link. Paste it on the main page to scan the whole playlist for AI tracks.");
     if (!parsed) return fail("That doesn't look like a Spotify track/artist link, a YouTube link, or an artist name.");
 
     let hint: Hint | null;
@@ -258,6 +288,82 @@ export class ScoreService {
     }
     const scored = await this.scoreTrack(best.deezerTrackId);
     return { input, ...scored, confident: best.similarity >= CONFIDENT, alternatives: matches.slice(1), error: scored.report ? undefined : "Track not found" };
+  }
+
+  /** The tracks of a public playlist, cached briefly so rescans and retries are free. */
+  async getPlaylist(id: string): Promise<PlaylistInfo | null> {
+    const key = `playlist:v1:${id}`;
+    const hit = cacheGet<PlaylistInfo>(this.db, key, PLAYLIST_TTL);
+    if (hit) return hit;
+    const info = await fetchPlaylist(this.deps.fetchText, id).catch(() => null);
+    if (info) cacheSet(this.db, key, info);
+    return info;
+  }
+
+  /**
+   * Scores playlist tracks quickly: match each to a Deezer artist, then score the artist from Deezer, Wikidata and
+   * Wikipedia only. MusicBrainz is skipped because its 1 request/second limit would make a playlist take minutes.
+   */
+  async scorePlaylistItems(items: PlaylistItem[], concurrency = 6): Promise<Record<string, PlaylistScore>> {
+    const out: Record<string, PlaylistScore> = {};
+    let next = 0;
+    await Promise.all(
+      Array.from({ length: Math.min(concurrency, items.length) }, async () => {
+        while (next < items.length) {
+          const item = items[next++]!;
+          out[item.id] = await this.scorePlaylistItem(item).catch(() => NO_MATCH);
+        }
+      }),
+    );
+    return out;
+  }
+
+  private async scorePlaylistItem(item: PlaylistItem): Promise<PlaylistScore> {
+    const artist = await this.matchArtist(item);
+    if (!artist) return NO_MATCH;
+    return { ...(await this.scoreArtistQuick(artist.id, artist.name)), artist };
+  }
+
+  /** Spotify gives names, not ids, so find the Deezer artist by title and credited artists (cached, as it never changes). */
+  private async matchArtist(item: PlaylistItem): Promise<{ id: number; name: string } | null> {
+    const key = `plmatch:v1:${foldName(item.artists)}:${foldName(item.title)}`;
+    const hit = cacheEntry<{ artist: { id: number; name: string } | null }>(this.db, key);
+    if (hit && (hit.value.artist || Date.now() - hit.ts < PARTIAL_TTL)) return hit.value.artist;
+
+    const matches = await findMatches(this.deps.deezer as Deezer, { source: "text", artist: item.artists, title: item.title });
+    const best = matches[0];
+    let artist: { id: number; name: string } | null = null;
+    // A wrong match would flag an innocent artist, so insist on a close one.
+    if (best && best.similarity >= PLAYLIST_MATCH) artist = { id: best.artistId, name: best.artist };
+    cacheSet(this.db, key, { artist });
+    return artist;
+  }
+
+  private async scoreArtistQuick(artistId: number, name: string): Promise<Omit<PlaylistScore, "artist">> {
+    const load = this.deps.loadQuickProfile ?? this.deps.loadArtistProfile;
+    const profile = await this.cachedProfile(`profile:v2:quick:${artistId}`, () => load(artistId, name));
+    if (!profile) return NO_MATCH;
+
+    const webKey = `quickweb:v1:${artistId}`;
+    let web = cacheGet<WebPresence>(this.db, webKey, EXTRA_TTL);
+    if (!web) {
+      const [wikidata, wikipedia] = await Promise.all([
+        this.deps.lookupWikidata(name, artistId).catch(() => undefined),
+        this.deps.lookupWikipedia?.(name).catch(() => undefined),
+      ]);
+      web = { ...(wikidata ? { wikidata } : {}), ...(wikipedia ? { wikipedia } : {}) };
+      cacheSet(this.db, webKey, web);
+    }
+    profile.web = web;
+    profile.crowd = this.crowd.forArtist(profile.key);
+
+    const report = scoreArtist(profile);
+    const reasons = report.signals
+      .filter((r) => r.score !== null && r.score >= 0.5 && r.weight > 0)
+      .sort((a, b) => b.score! * b.weight - a.score! * a.weight)
+      .slice(0, 2)
+      .map((r) => r.reason);
+    return { matched: true, score: report.score, verdict: report.verdict, confidence: report.confidence, reasons };
   }
 
   /** Resolves when background MusicBrainz lookups started so far are done (used by tests). */

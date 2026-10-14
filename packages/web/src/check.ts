@@ -24,8 +24,10 @@ app.innerHTML = `
 const input = document.getElementById("q") as HTMLInputElement;
 const result = document.getElementById("result")!;
 let run = 0; // guards against out-of-order responses
+let refreshTimer: number | undefined;
 
 async function check(q: string, loader: () => Promise<CheckResponse>, refresh = 0) {
+  clearTimeout(refreshTimer);
   const mine = ++run;
   if (refresh === 0) result.innerHTML = `<section class="muted">Checking…</section>`;
   let r: CheckResponse;
@@ -37,7 +39,7 @@ async function check(q: string, loader: () => Promise<CheckResponse>, refresh = 
   }
   if (mine !== run) return;
   render(r, q);
-  if (r.report?.pending && refresh < MAX_REFRESH) setTimeout(() => void check(q, loader, refresh + 1), 4000);
+  if (r.report?.pending && refresh < MAX_REFRESH) refreshTimer = window.setTimeout(() => void check(q, loader, refresh + 1), 4000);
 }
 
 function explain(r: Report): string {
@@ -83,7 +85,9 @@ function render(c: CheckResponse, q: string) {
         <span id="voteMsg" class="muted small"></span>
       </section>`);
   }
+  parts.push(`<p class="again-wrap"><button type="button" id="again">Check another</button></p>`);
   result.innerHTML = parts.join("");
+  document.getElementById("again")!.onclick = reset;
 
   result.querySelectorAll<HTMLButtonElement>("button.alt").forEach((b) => {
     b.onclick = () => void check(q, () => client.checkTrack(Number(b.dataset.id)));
@@ -100,6 +104,20 @@ function render(c: CheckResponse, q: string) {
     };
   });
 }
+
+/** Clear the input and result, cancel any pending refresh, and get ready for the next link. */
+function reset() {
+  clearTimeout(refreshTimer);
+  run++;
+  input.value = "";
+  result.innerHTML = "";
+  history.replaceState({}, "", location.pathname);
+  window.scrollTo({ top: 0, behavior: "smooth" });
+  input.focus();
+}
+
+// Selecting on focus lets you paste a new link straight over the previous one.
+input.addEventListener("focus", () => input.select());
 
 function submit(q: string) {
   q = q.trim();

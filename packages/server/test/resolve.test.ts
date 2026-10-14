@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { CONFIDENT, cleanYouTube, parseInput, parseSpotifyMeta, similarity } from "../src/resolve.js";
+import { CONFIDENT, PLAUSIBLE, cleanYouTube, parseInput, parseSpotifyMeta, similarity } from "../src/resolve.js";
 
 const ID = "4uLU6hMCjMI75M1A2tKUQC";
 
@@ -72,4 +72,20 @@ test("film and feature suffixes on a Spotify title don't stop it matching the pl
   assert.ok(similarity({ artist: "Sam Fender", title: "Rein Me In" }, feat) >= CONFIDENT);
   // but a genuinely different song by the same artist is still not a match
   assert.ok(similarity({ artist: "Sam Fender", title: "Seventeen Going Under" }, feat) < 0.7);
+});
+
+test("the right artist with a completely different song is not a track match", () => {
+  const hint = { source: "youtube" as const, artist: "Gen Bot", title: "Unreleased Demo" };
+  const wrongSong = similarity({ artist: "Gen Bot", title: "Neon Dreams" }, hint);
+  assert.ok(wrongSong < PLAUSIBLE, `got ${wrongSong}`);
+  // but a real match with some noise in the title still passes
+  assert.ok(similarity({ artist: "Gen Bot", title: "Unreleased Demo" }, hint) >= CONFIDENT);
+  assert.ok(similarity({ artist: "Gen Bot", title: "Unreleased Demo - 2024 Remaster" }, hint) >= PLAUSIBLE);
+});
+
+test("featured artists and 'M/V' do not count against a title", () => {
+  const hint = { source: "youtube" as const, artist: "Luis Fonsi", title: "Despacito ft. Daddy Yankee" };
+  assert.ok(similarity({ artist: "Luis Fonsi", title: "Despacito" }, hint) >= CONFIDENT);
+  assert.equal(cleanYouTube("PSY - GANGNAM STYLE(강남스타일) M/V", "officialpsy").title, "GANGNAM STYLE(강남스타일)");
+  assert.equal(cleanYouTube("Artist - Song MV", "x").title, "Song");
 });

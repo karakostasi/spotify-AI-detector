@@ -95,6 +95,11 @@ function render(c: CheckResponse, q: string, settled: boolean) {
   if (c.input && !c.track && !r) parts.push(`<p class="muted small">Looked for: ${esc(c.input.artist)}${c.input.title ? " – " + esc(c.input.title) : ""} (from ${SOURCE[c.input.source]})</p>`);
 
   const choices = c.artistChoices ?? [];
+  // Shown inside the result card, so it is never missed: this is the artist, not the song that was pasted
+  const fallbackNote =
+    c.fallback === "artist" && c.input
+      ? `<p class="note">We couldn't find ${c.input.title ? `“${esc(c.input.title)}”` : "that song"} on Deezer, so this checks the artist <b>${esc(c.input.artist)}</b> instead.</p>`
+      : "";
   const clueText = c.searchedAs?.split(" · ").slice(1).join(", ");
   if (c.searchedAs && (c.usedAi || c.unverifiedClues || choices.length)) {
     parts.push(`<p class="muted small">Searched for: <b>${esc(c.searchedAs)}</b>${c.usedAi ? " · query interpreted with AI" : ""}</p>`);
@@ -127,6 +132,7 @@ function render(c: CheckResponse, q: string, settled: boolean) {
             <p>${what}</p>
           </div>
         </div>
+        ${fallbackNote}
         ${
           r.pending && !settled
             ? `<p><span class="badge big unknown">Gathering more data…</span></p>${progressBar("Checking more sources")}<p class="muted">Preliminary: ${pct === null ? "no score yet" : `${pct}% AI score`}. Checking more sources, this updates automatically.</p>`

@@ -56,6 +56,14 @@ export interface WikidataInfo {
   musicBrainzId?: string;
 }
 
+export interface YouTubeVideo {
+  title: string;
+  channelId: string;
+  channelTitle: string;
+  /** ISO timestamp */
+  publishedAt: string;
+}
+
 /** Evidence from the wider web that the act exists as real people playing real shows. */
 export interface WebPresence {
   wikipedia?: WikipediaInfo;
@@ -65,8 +73,10 @@ export interface WebPresence {
    * `mbEvents` and `liveReleases` come from MusicBrainz and need no key.
    */
   live?: { setlists?: number; mbEvents?: number; liveReleases?: number };
-  /** YouTube: third-party live-performance videos found */
-  youtube?: { liveVideos: number };
+  /** YouTube: videos that name the artist and look like live performances (only looked up when the score is uncertain) */
+  youtube?: { videos: YouTubeVideo[] };
+  /** YouTube was not queried because the other evidence was already clear (saves the daily quota) */
+  youtubeSkipped?: boolean;
 }
 
 export interface CrowdInfo {

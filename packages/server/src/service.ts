@@ -1,7 +1,7 @@
 import type { DatabaseSync } from "node:sqlite";
 import {
-  scoreArtist, normalizeName, profileFromIsrc, profileFromArtistId, lookupWebPresence, Deezer, MusicBrainz, Wikidata,
-  type ArtistProfile, type MusicBrainzInfo, type ScoreReport, type WebPresence, type WikidataInfo,
+  scoreArtist, normalizeName, profileFromIsrc, profileFromArtistId, lookupWebPresence, needsYouTube, YouTube, Deezer, MusicBrainz, Wikidata,
+  type ArtistProfile, type MusicBrainzInfo, type ScoreReport, type WebPresence, type WikidataInfo, type YouTubeVideo,
 } from "@aid/core";
 import { Crowd } from "./crowd.js";
 import { cacheEntry, cacheGet, cacheSet } from "./db.js";
@@ -46,6 +46,8 @@ export interface ServiceDeps {
   lookupMb: (artistName: string, isrc?: string, mbidHint?: string) => Promise<MusicBrainzInfo | undefined>;
   /** Wikipedia / setlist.fm / YouTube evidence that the act is real; optional sources need API keys */
   lookupWeb: (artistName: string, mbid?: string) => Promise<WebPresence | undefined>;
+  /** YouTube live videos for an artist. Absent when no key is configured. Only called when the score is uncertain. */
+  lookupYouTube?: (artistName: string) => Promise<YouTubeVideo[] | undefined>;
   /**
    * Which optional API keys are configured, e.g. "sy". It is part of the cache key, so adding or removing a key
    * re-runs the lookups instead of serving week-old results that were gathered without it.
@@ -68,7 +70,8 @@ export function defaultDeps(): ServiceDeps {
     lookupWikidata: (name, deezerId) => wikidata.lookup(name, deezerId).catch(() => undefined),
     lookupMb: (name, isrc, hint) => mb.lookup(name, isrc, hint).catch(() => undefined),
     lookupWeb: (name, mbid) =>
-      lookupWebPresence(name, { mbid, musicBrainz: mb, setlistFmKey: process.env.SETLISTFM_API_KEY, youtubeKey: process.env.YOUTUBE_API_KEY }).catch(() => undefined),
+      lookupWebPresence(name, { mbid, musicBrainz: mb, setlistFmKey: process.env.SETLISTFM_API_KEY }).catch(() => undefined),
+    lookupYouTube: process.env.YOUTUBE_API_KEY ? (name) => new YouTube(process.env.YOUTUBE_API_KEY!).liveVideos(name).catch(() => undefined) : undefined,
   };
 }
 
@@ -130,7 +133,18 @@ export class ScoreService {
           info = await this.deps.lookupMb(name, isrc, wikidata?.musicBrainzId);
         }
         const web = await this.deps.lookupWeb(name, info?.artistId);
-        const combined = web || wikidata ? { ...web, ...(wikidata ? { wikidata } : {}) } : null;
+        let combined: WebPresence | null = web || wikidata ? { ...web, ...(wikidata ? { wikidata } : {}) } : null;
+
+        // YouTube costs quota, so only ask when the evidence so far leaves the answer open.
+        if (this.deps.lookupYouTube) {
+          const interim = { ...profile, musicBrainz: info, web: combined ?? undefined };
+          if (needsYouTube(scoreArtist(interim))) {
+            const videos = await this.deps.lookupYouTube(name);
+            if (videos) combined = { ...combined, youtube: { videos } };
+          } else {
+            combined = { ...combined, youtubeSkipped: true };
+          }
+        }
         cacheSet(this.db, extraKey, { info: info ?? null, web: combined, partial: !info });
       }).catch(() => undefined);
     }

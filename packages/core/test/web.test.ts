@@ -1,9 +1,9 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import {
-  Wikipedia, Wikidata, MusicBrainz, usableImage, SetlistFm, YouTube, lookupWebPresence, looksAiMade, scoreArtist,
+  Wikipedia, Wikidata, MusicBrainz, usableImage, SetlistFm, YouTube, lookupWebPresence, withYouTubeIfUncertain, needsYouTube, looksAiMade, scoreArtist,
   wikipedia, wikidata, livePerformances, youtubeLive, externalPresence, credits,
-  type ArtistProfile, type WikipediaInfo, type WikidataInfo,
+  type ArtistProfile, type WikipediaInfo, type WikidataInfo, type YouTubeVideo,
 } from "../src/index.js";
 
 type Reply = { status?: number; body: unknown };
@@ -17,6 +17,7 @@ const fakeFetch = (routes: Record<string, Reply>) =>
   }) as typeof fetch;
 
 const base = (over: Partial<ArtistProfile> = {}): ArtistProfile => ({ key: "deezer:1", name: "T", albums: [], topTracks: [], ...over });
+const vid = (channelId: string, channelTitle = "Someone", publishedAt = "2024-01-01T00:00:00Z"): YouTubeVideo => ({ title: "Artist live", channelId, channelTitle, publishedAt });
 const wiki = (over: Partial<WikipediaInfo>): WikipediaInfo => ({ found: true, ownArticle: true, aiMentioned: false, aiDescribed: false, ...over });
 
 test("looksAiMade catches real AI-act descriptions and ignores human or merely virtual acts", () => {
@@ -74,23 +75,25 @@ test("SetlistFm and YouTube providers parse responses", async () => {
   assert.equal(await sl.setlistCount("abc"), 42);
   assert.equal(await new SetlistFm("k", fakeFetch({})).setlistCount("none"), 0);
 
-  const yt = new YouTube(
-    "k",
-    fakeFetch({
-      "youtube/v3/search": {
-        body: {
-          items: [
-            { snippet: { title: "Nina Lane - Live at Glastonbury 2024", channelId: "c1" } },
-            { snippet: { title: "Nina Lane live concert full set", channelId: "c2" } },
-            { snippet: { title: "Nina Lane - live in Berlin", channelId: "c2" } }, // same channel: counted once
-            { snippet: { title: "Nina Lane - Official Lyric Video", channelId: "c3" } }, // not live
-            { snippet: { title: "Someone Else live concert", channelId: "c4" } }, // not this artist
-          ],
-        },
+  const item = (title: string, channelId: string, channelTitle = "Some Channel", publishedAt = "2024-07-01T10:00:00Z") => ({ snippet: { title, channelId, channelTitle, publishedAt } });
+  const yt = new YouTube("k", fakeFetch({
+    "youtube/v3/search": {
+      body: {
+        items: [
+          item("Nina Lane - Live at Glastonbury 2024", "c1", "Festival Archive"),
+          item("Nina Lane live concert full set", "c2", "Fan Cam"),
+          item("Nina Lane - live in Berlin", "c2", "Fan Cam"),
+          item("Nina Lane - Official Lyric Video", "c3"), // not live
+          item("Someone Else live concert", "c4"), // not this artist
+          item("Nina Lane live concert (AI generated)", "c5"), // AI-labelled uploads are not evidence
+        ],
       },
-    }),
-  );
-  assert.equal(await yt.liveVideos("Nina Lane"), 2);
+    },
+  }));
+  const videos = await yt.liveVideos("Nina Lane");
+  assert.deepEqual(videos.map((v) => v.channelId), ["c1", "c2", "c2"]);
+  assert.deepEqual(videos[0], { title: "Nina Lane - Live at Glastonbury 2024", channelId: "c1", channelTitle: "Festival Archive", publishedAt: "2024-07-01T10:00:00Z" });
+  assert.deepEqual(await new YouTube("k", fakeFetch({})).liveVideos("Nobody"), []);
 });
 
 const fastMb = (f: typeof fetch) => new MusicBrainz(f, "test", 0);
@@ -109,17 +112,16 @@ test("lookupWebPresence: keyless sources always run, keyed ones only with keys, 
   const f = fakeFetch({ ...wikiRoute, ...mbRoutes });
   const noKeys = await lookupWebPresence("Rick Astley", { fetch: f, musicBrainz: fastMb(f), mbid: "abc" });
   assert.deepEqual(noKeys.live, { setlists: undefined, mbEvents: 13, liveReleases: 2 });
-  assert.equal(noKeys.youtube, undefined);
+  assert.equal(noKeys.youtube, undefined, "YouTube is fetched separately, only when the result is uncertain");
   assert.equal(noKeys.wikipedia?.found, true);
 
   // without an MBID there is nothing to look up for live evidence
   assert.equal((await lookupWebPresence("Rick Astley", { fetch: f, musicBrainz: fastMb(f) })).live, undefined);
 
-  // setlist.fm blows up (500): MusicBrainz evidence, YouTube and Wikipedia still come back
-  const f2 = fakeFetch({ ...wikiRoute, ...mbRoutes, "api.setlist.fm": { status: 500, body: {} }, "youtube/v3/search": { body: { items: [] } } });
-  const mixed = await lookupWebPresence("Rick Astley", { fetch: f2, musicBrainz: fastMb(f2), mbid: "abc", setlistFmKey: "k", youtubeKey: "k" });
+  // setlist.fm blows up (500): MusicBrainz evidence and Wikipedia still come back
+  const f2 = fakeFetch({ ...wikiRoute, ...mbRoutes, "api.setlist.fm": { status: 500, body: {} } });
+  const mixed = await lookupWebPresence("Rick Astley", { fetch: f2, musicBrainz: fastMb(f2), mbid: "abc", setlistFmKey: "k" });
   assert.deepEqual(mixed.live, { setlists: undefined, mbEvents: 13, liveReleases: 2 });
-  assert.deepEqual(mixed.youtube, { liveVideos: 0 });
   assert.equal(mixed.wikipedia?.found, true);
 
   // with a working setlist.fm key its count is included too
@@ -149,8 +151,9 @@ test("signals: wikipedia, live performances, youtube", () => {
   assert.match(sig(livePerformances, { live: { mbEvents: 13, liveReleases: 2 } }).reason, /13 MusicBrainz events, 2 live albums/);
 
   assert.equal(sig(youtubeLive, undefined).score, null);
-  assert.ok(sig(youtubeLive, { youtube: { liveVideos: 0 } }).score >= 0.5);
-  assert.ok(sig(youtubeLive, { youtube: { liveVideos: 8 } }).score <= 0.05);
+  assert.equal(sig(youtubeLive, { youtube: { videos: [] } }).score, null, "finding nothing proves nothing: YouTube title matching is unreliable");
+  assert.equal(sig(youtubeLive, { youtubeSkipped: true }).score, null);
+  assert.match(sig(youtubeLive, { youtubeSkipped: true }).reason, /skipped/);
 });
 
 test("externalPresence scales with links instead of jumping to 25%", () => {
@@ -321,7 +324,7 @@ test("absence of evidence is only a faint lean: a real but obscure artist stays 
   const faint = (s: any, p: Partial<ArtistProfile>) => s(base(p), new Date());
   const noMb = faint(externalPresence, { musicBrainz: { artistFound: false, urlCount: 0, hasBackground: false, recordingFound: false, creditCount: 0 } });
   assert.ok(noMb.weight <= 0.6 && noMb.score <= 0.55);
-  assert.ok(faint(youtubeLive, { web: { youtube: { liveVideos: 0 } } }).weight <= 0.6);
+  assert.ok(faint(youtubeLive, { web: { youtube: { videos: [] } } }).weight <= 0.6);
   assert.ok(faint(livePerformances, { web: { live: { setlists: 0 } } }).weight <= 0.6);
 
   // Nefeli-like: 2 releases a year, found via Wikidata, one live video, no setlists on record
@@ -335,11 +338,81 @@ test("absence of evidence is only a faint lean: a real but obscure artist stays 
       web: {
         wikidata: { found: true, aiDescribed: false, isHuman: true, birthYear: 1995, linkCount: 8 },
         live: { setlists: 0, mbEvents: 0, liveReleases: 0 },
-        youtube: { liveVideos: 1 },
+        youtube: { videos: [vid("c1", "Festival", "2026-03-01T00:00:00Z")] },
       },
     }),
     { now: new Date("2026-10-14") },
   );
   assert.equal(obscure.verdict, "likely-human");
   assert.ok(obscure.score! < 0.15, `expected under 15%, got ${(obscure.score! * 100).toFixed(1)}%`);
+});
+
+test("youtubeLive: independent channels count, own channels don't, and footage older than the catalog is strong evidence", () => {
+  const run = (videos: YouTubeVideo[], firstRelease = "2022-05-01") =>
+    youtubeLive(base({ name: "Nina Lane", albums: [{ id: "1", title: "A", releaseDate: firstRelease, trackCount: 10 }], web: { youtube: { videos } } }), new Date());
+
+  // the artist's own channel and auto-generated Topic channels are not independent evidence
+  const own = run([vid("o1", "Nina Lane"), vid("o2", "Nina Lane - Topic"), vid("o3", "NinaLaneVEVO")]);
+  assert.equal(own.score, null, "only the act's own channels: nothing independent, so no opinion");
+
+  // more independent channels, lower score
+  const few = run([vid("a")]);
+  const many = run(["a", "b", "c", "d", "e", "f", "g", "h"].map((c) => vid(c)));
+  assert.ok(few.score! > many.score!);
+  assert.ok(many.score! <= 0.06);
+  assert.equal(run([vid("a"), vid("a"), vid("a")]).score, few.score, "several videos from one channel are one channel");
+
+  // footage published well before the first release: hard to fake
+  const old = run([vid("a", "Festival Archive", "2015-08-01T00:00:00Z")]);
+  assert.ok(old.score! <= 0.04 && old.weight >= 2, `got ${old.score}/${old.weight}`);
+  assert.match(old.reason, /predates the first release \(2022\)/);
+  // footage from after the catalog began is only ordinary evidence
+  const recent = run([vid("a", "Fan", "2024-02-01T00:00:00Z")]);
+  assert.ok(recent.weight < 2 && !/predates/.test(recent.reason));
+});
+
+test("needsYouTube: only worth a search when the result is uncertain", () => {
+  const rep = (score: number | null, decisive = false) =>
+    ({ artistKey: "k", artistName: "A", score, confidence: 1, verdict: "unknown", signals: decisive ? [{ id: "w", score: 0.95, weight: 4, reason: "", decisive: true }] : [] }) as any;
+  assert.equal(needsYouTube(rep(0.03)), false, "clearly human");
+  assert.equal(needsYouTube(rep(0.11)), false);
+  assert.equal(needsYouTube(rep(0.3)), true);
+  assert.equal(needsYouTube(rep(0.6)), true);
+  assert.equal(needsYouTube(rep(0.9)), false, "clearly AI");
+  assert.equal(needsYouTube(rep(null)), true, "no evidence at all: worth looking");
+  assert.equal(needsYouTube(rep(0.5, true)), false, "a decisive signal settles it");
+});
+
+test("withYouTubeIfUncertain spends quota only when it can change the answer", async () => {
+  let searches = 0;
+  const f = (async (url: string) => {
+    if (String(url).includes("youtube/v3/search")) searches++;
+    return { ok: true, status: 200, statusText: "", json: async () => ({ items: [{ snippet: { title: "Nina Lane live in Paris", channelId: "c1", channelTitle: "Archive", publishedAt: "2020-01-01T00:00:00Z" } }] }) } as Response;
+  }) as typeof fetch;
+
+  const humanClear = base({
+    name: "Nina Lane",
+    musicBrainz: { artistFound: true, urlCount: 20, hasBackground: true, recordingFound: false, creditCount: 0 },
+    web: { wikipedia: wiki({}), wikidata: { found: true, aiDescribed: false, isHuman: true, birthYear: 1980, linkCount: 8 }, live: { mbEvents: 20, liveReleases: 3 } },
+  });
+  const skipped = await withYouTubeIfUncertain(humanClear, "key", f);
+  assert.equal(skipped.youtubeSkipped, true);
+  assert.equal(skipped.youtube, undefined);
+  assert.equal(searches, 0, "clearly human: no quota spent");
+
+  const aiClear = base({ name: "Bot", web: { wikipedia: wiki({ aiMentioned: true, aiDescribed: true }) } });
+  assert.equal((await withYouTubeIfUncertain(aiClear, "key", f)).youtubeSkipped, true);
+  assert.equal(searches, 0, "clearly AI: no quota spent");
+
+  const unsure = base({
+    name: "Nina Lane",
+    albums: [{ id: "1", title: "A", releaseDate: "2022-05-01", trackCount: 10 }],
+    musicBrainz: { artistFound: false, urlCount: 0, hasBackground: false, recordingFound: false, creditCount: 0 },
+  });
+  const asked = await withYouTubeIfUncertain(unsure, "key", f);
+  assert.equal(searches, 1, "uncertain: asks YouTube");
+  assert.equal(asked.youtube?.videos.length, 1);
+
+  assert.equal((await withYouTubeIfUncertain(unsure, undefined, f)).youtube, undefined, "no key: nothing happens");
+  assert.equal(searches, 1);
 });

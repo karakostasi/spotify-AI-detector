@@ -277,3 +277,47 @@ test("a failed MusicBrainz lookup is retried once, and an incomplete result is o
   await svc.idle();
   assert.equal(mbCalls, 4);
 });
+
+test("YouTube is only queried when the result is uncertain, and the reason is shown when it is skipped", async () => {
+  const moderate: ArtistProfile = {
+    ...structuredClone(prolific),
+    key: "deezer:2",
+    name: "Middle Act",
+    albums: Array.from({ length: 12 }, (_, i) => ({
+      id: String(i), title: `M${i}`, trackCount: 3, releaseDate: new Date(Date.now() - i * 28 * 86400000).toISOString().slice(0, 10),
+    })),
+    topTracks: [],
+  };
+  const searched: string[] = [];
+  const svc = new ScoreService(openDb(), {
+    deezer: fakeDeezer as any,
+    fetchText: fakeFetch,
+    loadProfile: async (isrc) => structuredClone(isrc === "USXXX2400001" ? prolific : moderate),
+    loadArtistProfile: async () => structuredClone(prolific),
+    lookupWikidata: async () => undefined,
+    lookupMb: async () => ({ artistFound: false, urlCount: 0, hasBackground: false, recordingFound: false, creditCount: 0 }),
+    lookupWeb: async () => ({}),
+    lookupYouTube: async (name) => {
+      searched.push(name);
+      return [{ title: "Middle Act live", channelId: "c1", channelTitle: "Archive", publishedAt: "2015-01-01T00:00:00Z" }];
+    },
+    retryDelayMs: 0,
+  });
+  const yt = (r: any) => r.signals.find((x: any) => x.id === "youtubeLive");
+
+  // clearly AI-looking (50 releases a year): no quota spent, and the page can say why
+  await svc.scoreIsrc("USXXX2400001");
+  await svc.idle();
+  const clear = (await svc.scoreIsrc("USXXX2400001"))!;
+  assert.deepEqual(searched, []);
+  assert.equal(yt(clear).score, null);
+  assert.match(yt(clear).reason, /skipped/);
+
+  // in between: worth asking, and the evidence reaches the score
+  await svc.scoreIsrc("USXXX2400002");
+  await svc.idle();
+  const unsure = (await svc.scoreIsrc("USXXX2400002"))!;
+  assert.deepEqual(searched, ["Middle Act"]);
+  assert.ok(yt(unsure).score !== null && yt(unsure).score <= 0.3, `got ${yt(unsure).score}`);
+  assert.match(yt(unsure).reason, /predates the first release/);
+});

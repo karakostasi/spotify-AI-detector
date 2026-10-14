@@ -8,5 +8,5 @@ export { profileFromIsrc, profileFromArtistName, profileFromArtistId, type Profi
 export { Wikipedia, looksAiMade } from "./providers/wikipedia.js";
 export { SetlistFm } from "./providers/setlistfm.js";
 export { YouTube } from "./providers/youtube.js";
-export { lookupWebPresence, type WebLookupOptions } from "./providers/web.js";
+export { lookupWebPresence, withYouTubeIfUncertain, type WebLookupOptions } from "./providers/web.js";
 export { Wikidata } from "./providers/wikidata.js";

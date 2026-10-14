@@ -17,6 +17,7 @@ const prolific: ArtistProfile = {
     label: "ShadyLabel",
   })),
   topTracks: Array.from({ length: 10 }, () => ({ title: "x", durationSec: 120 })),
+  imageUrl: "https://cdn-images.dzcdn.net/images/artist/abc/500x500-000000-80-0-0.jpg",
 };
 
 const fakeTrack = { id: 7, title: "Neon Dreams", isrc: "USXXX2400001", duration: 120, artist: { id: 1, name: "Gen Bot" }, album: { id: 1, title: "A0" } };
@@ -74,6 +75,7 @@ test("score: validates isrc, 404s unknown, scores known, fills MusicBrainz in th
 
     const first = await json(await fetch(`${s.base}/api/score?isrc=USXXX2400001`));
     assert.equal(first.artistKey, "deezer:1");
+    assert.equal(first.artistImage, prolific.imageUrl);
     assert.equal(first.pending, true);
     assert.ok(["likely-ai", "suspicious"].includes(first.verdict));
 

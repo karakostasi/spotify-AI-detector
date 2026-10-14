@@ -1,7 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import {
-  Wikipedia, SetlistFm, YouTube, lookupWebPresence, looksAiMade, scoreArtist,
+  Wikipedia, usableImage, SetlistFm, YouTube, lookupWebPresence, looksAiMade, scoreArtist,
   wikipedia, livePerformances, youtubeLive, externalPresence,
   type ArtistProfile, type WikipediaInfo,
 } from "../src/index.js";
@@ -162,4 +162,14 @@ test("an AI Wikipedia description overrides otherwise human-looking metadata; co
     web: { live: { setlists: 80 }, wikipedia: wiki({}) },
   });
   assert.equal(scoreArtist(prolific, { now: new Date("2026-10-01") }).verdict, "likely-human");
+});
+
+test("usableImage keeps real Deezer photos and drops placeholders and foreign hosts", () => {
+  const real = "https://cdn-images.dzcdn.net/images/artist/2a1b/500x500-000000-80-0-0.jpg";
+  assert.equal(usableImage(real), real);
+  assert.equal(usableImage("https://cdn-images.dzcdn.net/images/artist//500x500-000000-80-0-0.jpg"), undefined, "empty hash = no photo");
+  assert.equal(usableImage("https://evil.example.com/x.jpg"), undefined);
+  assert.equal(usableImage("http://cdn-images.dzcdn.net/images/artist/2a1b/x.jpg"), undefined, "https only");
+  assert.equal(usableImage("javascript:alert(1)"), undefined);
+  assert.equal(usableImage(undefined), undefined);
 });

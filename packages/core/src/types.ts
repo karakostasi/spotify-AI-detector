@@ -71,6 +71,8 @@ export interface ArtistProfile {
   albums: AlbumInfo[];
   topTracks: TrackSummary[];
   fans?: number;
+  /** Artist photo, when the source has one */
+  imageUrl?: string;
   /** Spotify "AI Persona" badge, when known */
   spotifyAiPersona?: boolean;
   musicBrainz?: MusicBrainzInfo;

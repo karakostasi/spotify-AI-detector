@@ -28,5 +28,8 @@ form button { padding: 0 24px; }
 .cta:hover, .cta:focus-visible { background: #1db954; color: #000; }
 .cta-title { display: block; font-size: 1rem; font-weight: 700; }
 .cta-sub { display: block; margin-top: 2px; font-size: .75rem; opacity: .85; }
-.small { text-align: center; }
+.footnote { text-align: center; }
 .again-wrap { text-align: center; margin: 20px 0 0; }
+.who { display: flex; align-items: center; gap: 16px; margin-bottom: 4px; }
+.who p { margin: 4px 0; }
+.artist-img { flex: none; width: 96px; height: 96px; border-radius: 12px; object-fit: cover; background: #262626; }

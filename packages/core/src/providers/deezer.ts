@@ -23,6 +23,15 @@ export interface TrackHit {
   album: { id: number; title: string };
 }
 
+/**
+ * Deezer's artist photo, or undefined when the artist has none. Artists without a photo get a placeholder URL with an
+ * empty hash (".../artist//500x500..."), and we only trust Deezer's own image CDN.
+ */
+export function usableImage(url: string | undefined): string | undefined {
+  if (!url || url.includes("/artist//")) return undefined;
+  return /^https:\/\/[a-z0-9-]+\.dzcdn\.net\//i.test(url) ? url : undefined;
+}
+
 export class Deezer {
   constructor(private f: Fetch = fetch) {}
 
@@ -55,7 +64,7 @@ export class Deezer {
     return [...(exact.length ? exact : hits)].sort((a, b) => b.nb_fan - a.nb_fan)[0] ?? null;
   }
 
-  async artist(id: number): Promise<{ id: number; name: string; nb_fan: number } | null> {
+  async artist(id: number): Promise<{ id: number; name: string; nb_fan: number; picture_big?: string } | null> {
     return this.get(`/artist/${id}`);
   }
 

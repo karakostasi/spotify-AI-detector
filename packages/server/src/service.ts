@@ -16,6 +16,8 @@ const EXTRA_TTL = 7 * 24 * 3600 * 1000;
 export interface ServerReport extends ScoreReport {
   /** MusicBrainz data is still being fetched; score will sharpen on a later request */
   pending: boolean;
+  /** Artist photo, when one exists */
+  artistImage?: string;
 }
 
 export interface CheckResult {
@@ -81,12 +83,12 @@ export class ScoreService {
   }
 
   async scoreIsrc(isrc: string): Promise<ServerReport | null> {
-    const profile = await this.cachedProfile(`profile:isrc:${isrc}`, () => this.deps.loadProfile(isrc));
+    const profile = await this.cachedProfile(`profile:v2:isrc:${isrc}`, () => this.deps.loadProfile(isrc));
     return profile ? this.finish(profile, isrc) : null;
   }
 
   async scoreArtistId(artistId: number, name: string): Promise<ServerReport> {
-    const profile = (await this.cachedProfile(`profile:artist:${artistId}`, () => this.deps.loadArtistProfile(artistId, name)))!;
+    const profile = (await this.cachedProfile(`profile:v2:artist:${artistId}`, () => this.deps.loadArtistProfile(artistId, name)))!;
     return this.finish(profile);
   }
 
@@ -113,7 +115,7 @@ export class ScoreService {
     this.crowd.recordArtist(profile.key, profile.name, label);
     profile.crowd = this.crowd.forArtist(profile.key);
     if (label) profile.labelStats = this.crowd.labelStats(label);
-    return { ...scoreArtist(profile), pending };
+    return { ...scoreArtist(profile), pending, artistImage: profile.imageUrl };
   }
 
   private async scoreTrack(id: number): Promise<Pick<CheckResult, "track" | "report">> {

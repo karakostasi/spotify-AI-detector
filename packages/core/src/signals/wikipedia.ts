@@ -2,9 +2,10 @@ import type { Signal } from "../types.js";
 
 export const wikipedia: Signal = (p) => {
   const w = p.web?.wikipedia;
-  if (!w || !w.found) {
+  if (!w) return { id: "wikipedia", score: null, weight: 0, reason: "Wikipedia not checked yet" };
+  if (!w.found) {
     // Plenty of real small artists have no article, so absence says nothing.
-    return { id: "wikipedia", score: null, weight: 0, reason: "No Wikipedia article for this artist" };
+    return { id: "wikipedia", score: null, weight: 0, reason: "No Wikipedia article found for this artist" };
   }
   if (w.aiMentioned) {
     const quote = w.description ? `: "${w.description}"` : "";

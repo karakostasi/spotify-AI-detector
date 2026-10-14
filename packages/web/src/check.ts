@@ -19,7 +19,7 @@ app.innerHTML = `
     <span class="cta-title">Clean a whole playlist →</span>
     <span class="cta-sub">Scan your Spotify playlists or Liked Songs and remove likely-AI tracks</span>
   </a>
-  <p class="muted small">An estimate from public metadata and community votes, not proof.</p>`;
+  <p class="muted small footnote">An estimate from public metadata and community votes, not proof.</p>`;
 
 const input = document.getElementById("q") as HTMLInputElement;
 const result = document.getElementById("result")!;
@@ -67,8 +67,13 @@ function render(c: CheckResponse, q: string) {
     const what = c.track ? `<b>${esc(c.track.title)}</b> by <b>${esc(c.track.artist)}</b>` + (c.track.album ? ` <span class="muted">· ${esc(c.track.album)}</span>` : "") : `Artist <b>${esc(r.artistName)}</b>`;
     parts.unshift(`
       <section>
-        <p class="small muted">${c.input ? `From ${SOURCE[c.input.source]}` : ""}${c.track && !c.confident ? " · <b>best guess, double-check this is the right song</b>" : ""}</p>
-        <p>${what}</p>
+        <div class="who">
+          ${r.artistImage ? `<img class="artist-img" src="${esc(r.artistImage)}" alt="${esc(r.artistName)}" width="96" height="96" loading="lazy" referrerpolicy="no-referrer" onerror="this.remove()" />` : ""}
+          <div>
+            <p class="small muted">${c.input ? `From ${SOURCE[c.input.source]}` : ""}${c.track && !c.confident ? " · <b>best guess, double-check this is the right song</b>" : ""}</p>
+            <p>${what}</p>
+          </div>
+        </div>
         ${
           r.pending
             ? `<p><span class="badge big unknown">Gathering more data…</span></p><p class="muted">Preliminary: ${pct === null ? "no score yet" : `${pct}% AI score`}. Checking more sources, this updates automatically.</p>`

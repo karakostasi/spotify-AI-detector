@@ -1,7 +1,7 @@
 import type { CrowdInfo, ScoreReport } from "@aid/core";
 
 export type { ScoreReport, Verdict, SignalResult } from "@aid/core";
-export type Report = ScoreReport & { pending: boolean };
+export type Report = ScoreReport & { pending: boolean; artistImage?: string };
 export type Vote = "ai" | "human";
 
 export interface Match {

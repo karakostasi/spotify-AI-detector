@@ -19,7 +19,7 @@ const flagged = (t: SpTrack) => {
 
 function renderLogin(error?: string) {
   app.innerHTML = `
-    <p><a href="/">← Check a single track</a></p><h1>Playlist Cleaner</h1>
+    <p><a href="/">← Check a single track</a></p><a href="/"><img class="banner small" src="/logo.png" alt="AI Music Detector" width="900" height="600" /></a><h1>Playlist Cleaner</h1>
     <section>
       <label>Spotify app Client ID <input type="text" id="cid" value="${esc(ls.getItem("aid.clientId") ?? "")}" /></label>
       <label>Detector server URL (leave empty for this site) <input type="text" id="srv" value="${esc(ls.getItem("aid.server") ?? DEFAULT_SERVER)}" /></label>
@@ -36,7 +36,7 @@ function renderLogin(error?: string) {
 }
 
 async function renderHome() {
-  app.innerHTML = `<p><a href="/">← Check a single track</a></p><h1>Playlist Cleaner</h1><section id="pick">Loading playlists…</section><section id="out"></section>`;
+  app.innerHTML = `<p><a href="/">← Check a single track</a></p><a href="/"><img class="banner small" src="/logo.png" alt="AI Music Detector" width="900" height="600" /></a><h1>Playlist Cleaner</h1><section id="pick">Loading playlists…</section><section id="out"></section>`;
   const playlists = await spotify!.playlists();
   document.getElementById("pick")!.innerHTML = `
     <label>Source <select id="src"><option value="liked">Liked Songs</option>${playlists.map((p) => `<option value="${esc(p.id)}">${esc(p.name)}</option>`).join("")}</select></label>
